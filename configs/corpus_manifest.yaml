@@ -1,0 +1,10 @@
+corpus:
+  - id: "attention_is_all_you_need"
+    url: "https://arxiv.org/pdf/1706.03762"
+    type: "pdf"
+  - id: "rag_original"
+    url: "https://arxiv.org/pdf/2005.11401"
+    type: "pdf"
+  - id: "retrieval_augmented_survey"
+    url: "https://arxiv.org/pdf/2312.10997"
+    type: "pdf"
