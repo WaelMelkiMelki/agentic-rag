@@ -1,28 +1,28 @@
 import hashlib
 import json
-import os
 from pathlib import Path
 
-from dotenv import load_dotenv
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-
-
-load_dotenv()
+from sentence_transformers import SentenceTransformer
 
 
 class CachedEmbedder:
-    def __init__(self, cache_dir: str = "data/cache"):
-        self.embedding_dimension = 768
-        self.model = GoogleGenerativeAIEmbeddings(
-            model=os.getenv("GEMINI_EMBEDDING_MODEL", "models/gemini-embedding-001"),
-            google_api_key=os.getenv("GEMINI_API_KEY"),
-        )
+    def __init__(
+        self,
+        cache_dir: str = "data/cache",
+        model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    ):
+        self.model_name = model_name
+        self.model = SentenceTransformer(model_name)
+        self.embedding_dimension = self.model.get_embedding_dimension()
+        if self.embedding_dimension is None:
+            raise RuntimeError("Embedding model did not provide its vector dimension")
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _cache_key(self, text: str) -> str:
         """Create a unique filename from the text content."""
-        return hashlib.md5(text.encode()).hexdigest()
+        value = f"{self.model_name}\0{text}".encode()
+        return hashlib.md5(value).hexdigest()
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed texts, reusing vectors saved in the disk cache."""
@@ -43,18 +43,22 @@ class CachedEmbedder:
                 f"Embedding {len(uncached_texts)} new texts "
                 f"({len(texts) - len(uncached_texts)} cached)..."
             )
-            batch_size = 50
+            batch_size = 32
             for start in range(0, len(uncached_texts), batch_size):
                 batch = uncached_texts[start : start + batch_size]
-                vectors = self.model.embed_documents(
-                    batch, output_dimensionality=self.embedding_dimension
+                vectors = self.model.encode(
+                    batch,
+                    batch_size=batch_size,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
                 )
 
                 for j, vector in enumerate(vectors):
                     global_index = uncached_indices[start + j]
-                    results[global_index] = vector
+                    vector_list = vector.tolist()
+                    results[global_index] = vector_list
                     key = self._cache_key(uncached_texts[start + j])
-                    (self.cache_dir / f"{key}.json").write_text(json.dumps(vector))
+                    (self.cache_dir / f"{key}.json").write_text(json.dumps(vector_list))
         else:
             print(f"All {len(texts)} embeddings cached!")
 
@@ -65,6 +69,8 @@ class CachedEmbedder:
 
     def embed_query(self, query: str) -> list[float]:
         """Embed a single search query."""
-        return self.model.embed_query(
-            query, output_dimensionality=self.embedding_dimension
-        )
+        return self.model.encode(
+            query,
+            normalize_embeddings=True,
+            convert_to_numpy=True,
+        ).tolist()

@@ -3,7 +3,11 @@ from pathlib import Path
 
 def parse_pdf(pdf_path: str) -> str:
     """Convert a PDF to Markdown text."""
-    return pymupdf4llm.to_markdown(pdf_path)
+    return pymupdf4llm.to_markdown(
+        pdf_path,
+        ignore_graphics=True,
+        show_progress=False,
+    )
 
 def parse_all(raw_dir: str, output_dir: str):
     raw = Path(raw_dir)
