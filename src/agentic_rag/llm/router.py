@@ -14,12 +14,14 @@ class LLMRouter:
             base_url="https://openrouter.ai/api/v1",
             api_key=os.getenv("OPENROUTER_API_KEY"),
             temperature=0,
+            max_retries=2,
         )
 
         self.gemini = ChatGoogleGenerativeAI(
             model="gemini-3.8-flash",
             api_key=os.getenv("GEMINI_API_KEY"),
             temperature=0,
+            max_retries=2,
         )
 
     def get_llm(self, provider: str = "gemini"):
