@@ -43,7 +43,9 @@ def test_answerable_question():
     router = FakeRouter(
         [
             '{"action": "retrieve", "query": "multi-head attention"}',
+            "yes",
             "It attends to different subspaces [paper__0].",
+            "CLAIM: It attends to different subspaces\nVERDICT: supported\nCHUNKS: paper__0",
         ]
     )
     app = build_agent(router, FakeEmbedder(), FakeStore([make_chunk()]))
@@ -55,8 +57,7 @@ def test_answerable_question():
             "steps": [],
         }
     )
-
-    assert result["status"] == "answered_unverified"
+    assert result["status"] == "answered"
     assert result["citations"] == ["paper__0"]
-    assert result["router_calls"] == 2
-    assert len(router.prompts) == 2
+    assert result["router_calls"] == 4
+    assert len(router.prompts) == 4

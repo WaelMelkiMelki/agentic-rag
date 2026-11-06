@@ -40,3 +40,9 @@ Corpus: 3 papers; Qdrant collection contained 77 points at retrieval evaluation 
 | What dataset was used to evaluate the original RAG model? | q02: judge score 3/5.                                               | Not run.                                                                                   |                 — | Not assessed.                                                             |
 
 The Phase 5 status only confirms that the cited chunk ID exists in the retrieved results. It does not verify that the cited chunk supports the answer's claims.
+
+## Phase 6 status
+
+The Phase 6 agent now includes document grading, claim grounding, query rewriting, and bounded retries. Offline unit coverage passes (11 tests).
+
+The live demo and B1-vs-B4 ablation have not been run. No Phase 6 quality, refusal, or router-call results are claimed yet. Run `uv run python evals/run_ablation.py` in quota-sized sessions and record the measured results here before drawing conclusions about whether the extra calls improve answer quality.
