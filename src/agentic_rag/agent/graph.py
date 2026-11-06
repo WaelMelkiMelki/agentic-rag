@@ -3,178 +3,157 @@ import re
 from langgraph.graph import END, START, StateGraph
 from pydantic import ValidationError
 
+from agentic_rag.agent.grade import grade_chunks
+from agentic_rag.agent.ground import check_grounding
 from agentic_rag.agent.plan import PLAN_PROMPT, Plan
 from agentic_rag.agent.prompts import GENERATE_PROMPT, format_context
+from agentic_rag.agent.rewrite import rewrite_query
 from agentic_rag.agent.state import AgentState
 
 ABSTENTION = "I cannot answer this from the provided sources."
 
 
-def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: int = 2):
-    if top_k < 1 or max_router_calls < 1:
-        raise ValueError("top_k and max_router_calls must be positive")
+def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: int = 10,
+                max_rounds: int = 2, grounded_threshold: float = 0.75):
+    """Build a bounded RAG graph with grading, grounding, and query retries.
+
+    ``max_rounds`` counts retries after the initial retrieval round.
+    """
+    if top_k < 1 or max_router_calls < 1 or max_rounds < 0:
+        raise ValueError("top_k and max_router_calls must be positive; max_rounds cannot be negative")
 
     def plan(state: AgentState) -> dict:
-        """Decide whether to retrieve and prepare a search query."""
         if state["router_calls"] >= max_router_calls:
-            return {
-                "route": "abstain",
-                "stop_reason": "budget_exhausted",
-                "steps": ["Planner skipped: budget exhausted"],
-            }
+            return {"route": "abstain", "stop_reason": "budget_exhausted",
+                    "steps": ["Planner skipped: budget exhausted"]}
         try:
-            raw = router.invoke_with_fallback(
-                PLAN_PROMPT.format(question=state["question"])
-            )
+            raw = router.invoke_with_fallback(PLAN_PROMPT.format(question=state["question"]))
         except Exception:
-            return {
-                "route": "abstain",
-                "router_calls": state["router_calls"] + 1,
-                "stop_reason": "llm_unavailable",
-                "steps": ["Planner failed: LLM unavailable"],
-            }
-
+            return {"route": "abstain", "router_calls": state["router_calls"] + 1,
+                    "stop_reason": "llm_unavailable", "steps": ["Planner failed: LLM unavailable"]}
         try:
             parsed = Plan.model_validate_json(raw.strip())
-            route = parsed.action
-            query = parsed.query.strip() or state["question"]
-            step = f"Planner chose: {route}"
+            route, query = parsed.action, parsed.query.strip() or state["question"]
+            step = f"Plan: {route}"
         except ValidationError:
-            # A malformed plan must not cause an uncontrolled action.
-            # Searching the read-only document store is our safe default.
-            route = "retrieve"
-            query = state["question"]
-            step = "Planner output invalid; searched original question"
-
-        return {
-            "route": route,
-            "search_query": query,
-            "router_calls": state["router_calls"] + 1,
-            "steps": [step],
-        }
+            route, query, step = "retrieve", state["question"], "Plan invalid; searching original question"
+        return {"route": route, "search_query": query, "router_calls": state["router_calls"] + 1,
+                "round": 0, "steps": [step]}
 
     def retrieve(state: AgentState) -> dict:
-        """Embed the planned query and search Qdrant. No router call."""
         try:
-            vector = embedder.embed_query(state["search_query"])
+            vector = embedder.embed_query(state.get("search_query", state["question"]))
             chunks = store.search(vector, top_k=top_k)
         except Exception:
-            return {
-                "chunks": [],
-                "stop_reason": "retrieval_unavailable",
-                "steps": ["Retrieval failed"],
-            }
-        return {
-            "chunks": chunks,
-            "steps": [f"Retrieved {len(chunks)} chunks"],
-        }
+            return {"chunks": [], "relevant_chunks": [], "steps": ["Retrieval failed"]}
+        return {"chunks": chunks, "relevant_chunks": [],
+                "steps": [f"Round {state.get('round', 0)}: retrieved {len(chunks)} chunks"]}
+
+    def grade(state: AgentState) -> dict:
+        chunks = state.get("chunks", [])
+        if not chunks:
+            return {"relevant_chunks": [], "steps": ["No chunks to grade"]}
+        # Keep one call each for generation and grounding; grading uses only the remainder.
+        remaining_grading_calls = max(0, max_router_calls - state["router_calls"] - 2)
+        if remaining_grading_calls == 0:
+            return {"relevant_chunks": chunks, "steps": ["Skipped grading: reserved generation and grounding budget"]}
+        selected = chunks[:remaining_grading_calls]
+        relevant, calls = grade_chunks(state["question"], selected, router)
+        # Chunks beyond the grading budget remain eligible evidence.
+        relevant.extend(chunks[remaining_grading_calls:])
+        return {"relevant_chunks": relevant, "router_calls": state["router_calls"] + calls,
+                "steps": [f"Graded: {len(relevant)}/{len(chunks)} chunks retained"]}
 
     def generate(state: AgentState) -> dict:
-        """Use the SAME generation prompt as the B1 baseline."""
-        context = format_context(state["chunks"])
-        prompt = GENERATE_PROMPT.format(
-            context=context,
-            question=state["question"],
-        )
+        chunks = state.get("relevant_chunks", [])
+        if not chunks:
+            return {"draft_answer": "", "steps": ["No relevant chunks for generation"]}
+        prompt = GENERATE_PROMPT.format(context=format_context(chunks), question=state["question"])
         try:
-            draft = router.invoke_with_fallback(prompt)
+            draft = router.invoke_with_fallback(prompt).strip()
         except Exception:
-            return {
-                "draft_answer": "",
-                "router_calls": state["router_calls"] + 1,
-                "stop_reason": "llm_unavailable",
-                "steps": ["Generation failed: LLM unavailable"],
-            }
-        return {
-            "draft_answer": draft.strip(),
-            "router_calls": state["router_calls"] + 1,
-            "steps": ["Generated a draft answer"],
-        }
+            return {"draft_answer": "", "router_calls": state["router_calls"] + 1,
+                    "stop_reason": "llm_unavailable", "steps": ["Generation failed"]}
+        return {"draft_answer": draft, "router_calls": state["router_calls"] + 1,
+                "steps": ["Generated draft"]}
 
-    def abstain(state: AgentState) -> dict:
-        if state.get("stop_reason"):
-            reason = state["stop_reason"]
-        elif state.get("route") == "abstain":
-            reason = "out_of_scope"
-        elif state["router_calls"] >= max_router_calls:
-            reason = "budget_exhausted"
-        else:
-            reason = "no_chunks"
-
-        return {
-            "final_answer": ABSTENTION,
-            "citations": [],
-            "status": "abstained",
-            "stop_reason": reason,
-            "steps": [f"Abstained: {reason}"],
-        }
-
-    def finalize(state: AgentState) -> dict:
-        """Check citation IDs exist. Do NOT claim this proves grounding."""
+    def ground(state: AgentState) -> dict:
         draft = state.get("draft_answer", "").strip()
         if not draft or draft.casefold() == ABSTENTION.casefold():
-            return {
-                "final_answer": ABSTENTION,
-                "citations": [],
-                "status": "abstained",
-                "stop_reason": state.get("stop_reason", "insufficient_evidence"),
-                "steps": ["Abstained after generation"],
-            }
-
-        cited_ids = list(dict.fromkeys(re.findall(r"\[([A-Za-z0-9_.:-]+)\]", draft)))
-        available_ids = {
-            chunk.payload["chunk_id"] for chunk in state["chunks"]
-        }
-
-        if not cited_ids or any(
-            chunk_id not in available_ids for chunk_id in cited_ids
-        ):
-            return {
-                "final_answer": ABSTENTION,
-                "citations": [],
-                "status": "abstained",
-                "stop_reason": "invalid_or_missing_citations",
-                "steps": ["Rejected answer: invalid or missing citations"],
-            }
-
-        return {
-            "final_answer": draft,
-            "citations": cited_ids,
-            "status": "answered_unverified",
-            "stop_reason": "completed",
-            "steps": ["Finalized answer; grounding not yet checked"],
-        }
-
-    def after_plan(state: AgentState) -> str:
-        return state["route"]
-
-    def after_retrieve(state: AgentState) -> str:
-        if not state.get("chunks"):
-            return "abstain"
+            return {"is_grounded": False, "feedback": "No answer to check",
+                    "grounding_feedback": "No answer to check", "steps": ["Grounding skipped: no draft"]}
         if state["router_calls"] >= max_router_calls:
+            feedback = "Grounding check skipped: router-call budget exhausted"
+            return {"is_grounded": False, "feedback": feedback, "grounding_feedback": feedback,
+                    "steps": ["Grounding skipped: budget exhausted"]}
+        result = check_grounding(draft, state.get("relevant_chunks", []), router,
+                                 grounded_threshold=grounded_threshold)
+        status = "grounded" if result["is_grounded"] else "not grounded"
+        return {"is_grounded": result["is_grounded"], "feedback": result["feedback"],
+                "grounding_feedback": result["feedback"],
+                "router_calls": state["router_calls"] + result["router_calls"],
+                "steps": [f"Grounding check: {status}"]}
+
+    def rewrite(state: AgentState) -> dict:
+        query, calls = rewrite_query(state["question"], state.get("search_query", state["question"]),
+                                     state.get("feedback", "No relevant results"),
+                                     state.get("round", 0) + 1, router)
+        return {"search_query": query, "round": state.get("round", 0) + 1,
+                "router_calls": state["router_calls"] + calls, "steps": [f"Rewrote query: '{query}'"]}
+
+    def abstain(state: AgentState) -> dict:
+        reason = state.get("stop_reason") or (
+            "out_of_scope" if state.get("route") == "abstain" else
+            "budget_exhausted" if state["router_calls"] >= max_router_calls else
+            "no_relevant_docs" if not state.get("relevant_chunks") else "insufficient_evidence")
+        return {"final_answer": ABSTENTION, "citations": [], "status": "abstained",
+                "stop_reason": reason, "steps": [f"Abstained: {reason}"]}
+
+    def finalize(state: AgentState) -> dict:
+        draft = state.get("draft_answer", "").strip()
+        if not draft or draft.casefold() == ABSTENTION.casefold():
+            return {"final_answer": ABSTENTION, "citations": [], "status": "abstained",
+                    "stop_reason": state.get("stop_reason", "no_answer"), "steps": ["Finalized: abstained"]}
+        cited = list(dict.fromkeys(re.findall(r"\[([A-Za-z0-9_.:-]+)\]", draft)))
+        valid = {c.payload["chunk_id"] for c in state.get("relevant_chunks", [])}
+        if not cited or any(cid not in valid for cid in cited):
+            return {"final_answer": ABSTENTION, "citations": [], "status": "abstained",
+                    "stop_reason": "invalid_citations", "steps": ["Finalized: invalid citations"]}
+        grounded = state.get("is_grounded", False)
+        return {"final_answer": draft, "citations": cited,
+                "status": "answered" if grounded else "answered_unverified",
+                "stop_reason": "grounded" if grounded else "grounding_unverified",
+                "steps": ["Finalized: answered"]}
+
+    def after_plan(state):
+        return state.get("route", "abstain")
+
+    def after_grade(state):
+        if not state.get("relevant_chunks"):
+            return "rewrite" if state.get("round", 0) < max_rounds and state["router_calls"] + 3 <= max_router_calls else "abstain"
+        # Preserve enough budget for generation and grounding.
+        if state["router_calls"] + 1 > max_router_calls:
             return "abstain"
         return "generate"
 
-    builder = StateGraph(AgentState)
-    builder.add_node("plan", plan)
-    builder.add_node("retrieve", retrieve)
-    builder.add_node("generate", generate)
-    builder.add_node("abstain", abstain)
-    builder.add_node("finalize", finalize)
+    def after_ground(state):
+        if state.get("is_grounded"):
+            return "finalize"
+        can_retry = state.get("round", 0) < max_rounds and state["router_calls"] + 3 <= max_router_calls
+        return "rewrite" if can_retry else "finalize"
 
+    builder = StateGraph(AgentState)
+    for name, fn in [("plan", plan), ("retrieve", retrieve), ("grade", grade), ("generate", generate),
+                     ("ground", ground), ("rewrite", rewrite), ("abstain", abstain), ("finalize", finalize)]:
+        builder.add_node(name, fn)
     builder.add_edge(START, "plan")
-    builder.add_conditional_edges(
-        "plan",
-        after_plan,
-        {"retrieve": "retrieve", "abstain": "abstain"},
-    )
-    builder.add_conditional_edges(
-        "retrieve",
-        after_retrieve,
-        {"generate": "generate", "abstain": "abstain"},
-    )
-    builder.add_edge("generate", "finalize")
+    builder.add_conditional_edges("plan", after_plan, {"retrieve": "retrieve", "abstain": "abstain"})
+    builder.add_edge("retrieve", "grade")
+    builder.add_conditional_edges("grade", after_grade,
+                                  {"generate": "generate", "rewrite": "rewrite", "abstain": "abstain"})
+    builder.add_edge("generate", "ground")
+    builder.add_conditional_edges("ground", after_ground, {"finalize": "finalize", "rewrite": "rewrite"})
+    builder.add_edge("rewrite", "retrieve")
     builder.add_edge("abstain", END)
     builder.add_edge("finalize", END)
-
     return builder.compile()
