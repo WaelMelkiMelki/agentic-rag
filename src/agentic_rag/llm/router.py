@@ -8,7 +8,8 @@ load_dotenv()
 
 
 class LLMRouter:
-    def __init__(self):
+    def __init__(self, tracker=None):
+        self.tracker = tracker
         self._gemini_quota_exhausted = False
         self.openrouter = ChatOpenAI(
             model="openrouter/free",
@@ -41,6 +42,7 @@ class LLMRouter:
         if not self._gemini_quota_exhausted:
             try:
                 response = self.gemini.invoke(prompt)
+                self._record_usage(response, "gemini", self.gemini)
                 return response.content
             except Exception as error:
                 print(f"⚠️  Gemini failed for this request: {error}")
@@ -52,11 +54,16 @@ class LLMRouter:
 
         try:
             response = self.openrouter.invoke(prompt)
+            self._record_usage(response, "openrouter", self.openrouter)
             return response.content
         except Exception as error:
             print(f"⚠️  OpenRouter also failed: {error}")
 
         raise RuntimeError("All providers failed. Check your API keys.")
+
+    def _record_usage(self, response, provider: str, model) -> None:
+        if self.tracker is not None:
+            self.tracker.record(response, provider, getattr(model, "model", "unknown"))
 
 
 def _is_quota_error(error: Exception) -> bool:
