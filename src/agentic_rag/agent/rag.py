@@ -1,6 +1,5 @@
 from agentic_rag.agent.prompts import GENERATE_PROMPT, format_context
 from agentic_rag.llm.router import LLMRouter
-from agentic_rag.retrieval.embedder import CachedEmbedder
 from agentic_rag.retrieval.store import VectorStore
 
 
@@ -13,7 +12,11 @@ class SimpleRAG:
 
     def __init__(self, router=None, embedder=None, store=None, top_k: int = 5):
         self.router = router if router is not None else LLMRouter()
-        self.embedder = embedder if embedder is not None else CachedEmbedder()
+        if embedder is None:
+            from agentic_rag.retrieval.embedder import CachedEmbedder
+
+            embedder = CachedEmbedder()
+        self.embedder = embedder
         self.store = store if store is not None else VectorStore()
         if top_k <= 0:
             raise ValueError("top_k must be greater than zero")

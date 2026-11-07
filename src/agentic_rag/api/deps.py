@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from agentic_rag.agent.rag import SimpleRAG
     from agentic_rag.llm.router import LLMRouter
-    from agentic_rag.retrieval.embedder import CachedEmbedder
+    from agentic_rag.retrieval.fast_embedder import FastEmbedder
     from agentic_rag.retrieval.store import VectorStore
 
 
@@ -20,11 +20,11 @@ def get_router() -> LLMRouter:
 
 
 @lru_cache(maxsize=1)
-def get_embedder() -> CachedEmbedder:
-    from agentic_rag.retrieval.embedder import CachedEmbedder
+def get_embedder() -> FastEmbedder:
+    from agentic_rag.retrieval.fast_embedder import FastEmbedder
 
-    # Keep the same local model used to build the current Qdrant collection.
-    return CachedEmbedder()
+    # ONNX/FastEmbed keeps the API process small while matching the indexed model.
+    return FastEmbedder()
 
 
 @lru_cache(maxsize=1)

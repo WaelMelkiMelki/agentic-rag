@@ -49,6 +49,18 @@ def test_health(client):
     assert response.json() == {"status": "ok", "qdrant_docs": 42}
 
 
+def test_health_degraded_returns_service_unavailable(client, monkeypatch):
+    class BrokenStore:
+        def count(self):
+            raise ConnectionError("Qdrant is unavailable")
+
+    monkeypatch.setattr(main, "get_store", lambda: BrokenStore())
+    response = client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "degraded", "qdrant_docs": -1}
+
+
 def test_query_b4(client):
     response = client.post(
         "/query", json={"question": "What is attention?", "system": "B4"}

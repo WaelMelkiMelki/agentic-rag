@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .env
+.streamlit/secrets.toml
+.agents/skills/developing-with-streamlit
 data/raw/
 data/processed/
 data/cache/

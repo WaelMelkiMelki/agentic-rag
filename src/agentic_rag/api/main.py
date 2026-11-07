@@ -6,6 +6,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from agentic_rag.api.deps import get_agent, get_baseline, get_store
@@ -48,12 +49,15 @@ app = FastAPI(title="Agentic RAG API", version="0.1.0", lifespan=lifespan)
 
 
 @app.get("/health", response_model=HealthResponse)
-def health() -> HealthResponse:
+def health() -> HealthResponse | JSONResponse:
     try:
         return HealthResponse(status="ok", qdrant_docs=get_store().count())
     except Exception:
         logger.exception("Health check failed")
-        return HealthResponse(status="degraded", qdrant_docs=-1)
+        return JSONResponse(
+            status_code=503,
+            content=HealthResponse(status="degraded", qdrant_docs=-1).model_dump(),
+        )
 
 
 @app.post("/query", response_model=QueryResponse)
