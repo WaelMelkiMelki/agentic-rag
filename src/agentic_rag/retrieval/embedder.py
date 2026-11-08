@@ -6,6 +6,7 @@ from sentence_transformers import SentenceTransformer
 
 
 class CachedEmbedder:
+    #ok
     def __init__(
         self,
         cache_dir: str = "data/cache",
