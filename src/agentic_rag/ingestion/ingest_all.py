@@ -2,12 +2,14 @@ from pathlib import Path
 
 from agentic_rag.ingestion.chunk import chunk_text
 from agentic_rag.ingestion.parse import parse_pdf
-from agentic_rag.retrieval.embedder import CachedEmbedder
+from agentic_rag.retrieval.fast_embedder import FastEmbedder
 from agentic_rag.retrieval.store import VectorStore
 
 
 def ingest_all() -> None:
-    embedder = CachedEmbedder()
+    # Use the same ONNX model as the API; this avoids importing PyTorch and
+    # keeps ingestion/query vectors compatible.
+    embedder = FastEmbedder()
     store = VectorStore()
     store.create_collection(vector_size=embedder.embedding_dimension)
 

@@ -1,0 +1,24 @@
+name: Keep Qdrant Cloud active
+
+on:
+  schedule:
+    - cron: "0 10 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping-qdrant:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Qdrant Cloud
+        env:
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: |
+          test -n "$QDRANT_URL"
+          test -n "$QDRANT_API_KEY"
+          curl --fail --silent --show-error --max-time 30 \
+            -H "api-key: $QDRANT_API_KEY" \
+            "$QDRANT_URL/collections"

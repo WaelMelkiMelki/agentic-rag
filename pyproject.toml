@@ -8,13 +8,18 @@ dependencies = [
     "langchain-google-genai>=2.1.12,<3.0.0",
     "langchain-openai>=1.7.3",
     "langgraph>=1.2.19",
+    "fastapi>=0.115.12,<0.116",
     "pymupdf4llm<1",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
-    "qdrant-client>=1.20.0",
+    "qdrant-client[fastembed]>=1.20.0",
     "requests>=2.34.2",
-    "sentence-transformers>=5.1.2",
+    "uvicorn[standard]>=0.30",
 ]
+
+[project.optional-dependencies]
+ingestion = ["sentence-transformers>=5.1.2"]
+ui = ["pandas<3.0", "streamlit>=1.67.0,<2"]
 
 [project.scripts]
 agentic-rag = "agentic_rag:main"
@@ -25,5 +30,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.27,<1",
     "pytest>=9.2.0",
+    "ty>=0.0.99",
 ]

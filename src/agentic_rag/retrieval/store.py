@@ -1,12 +1,20 @@
 import hashlib
+import os
 
+from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 
 class VectorStore:
-    def __init__(self, url: str = "http://localhost:6333"):
-        self.client = QdrantClient(url=url)
+    def __init__(self, url: str | None = None, api_key: str | None = None):
+        load_dotenv()
+        self.url = url or os.getenv("QDRANT_URL", "http://localhost:6333")
+        configured_api_key = api_key or os.getenv("QDRANT_API_KEY")
+        if configured_api_key:
+            self.client = QdrantClient(url=self.url, api_key=configured_api_key)
+        else:
+            self.client = QdrantClient(url=self.url)
         self.collection = "agentic_rag_docs"
 
     def create_collection(self, vector_size: int = 768) -> None:
@@ -72,4 +80,4 @@ class VectorStore:
     def count(self) -> int:
         """Return the total number of stored chunks."""
         info = self.client.get_collection(self.collection)
-        return info.points_count
+        return int(info.points_count or 0)
