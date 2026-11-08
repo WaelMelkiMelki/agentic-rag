@@ -30,13 +30,14 @@ Requirements: Docker Compose, `uv`, and Python 3.12 for host-side ingestion.
    Open `http://localhost:8501`. The UI uses `API_URL` from the environment or
    Streamlit secrets; it defaults to `http://localhost:8000`.
 
-To ingest PDFs with the existing Sentence Transformers pipeline, install its
-optional dependency and point it at local Qdrant:
+Ingest PDFs with the same FastEmbed ONNX model used by the API:
 
 ```bash
-uv sync --extra ingestion
 QDRANT_URL=http://localhost:6333 uv run python -m agentic_rag.ingestion.ingest_all
 ```
+
+The older `CachedEmbedder` implementation still uses Sentence Transformers;
+install the optional `ingestion` extra only if you use that legacy embedder.
 
 Stop the containers with `docker compose down`. The named Qdrant volume remains
 so the collection persists.

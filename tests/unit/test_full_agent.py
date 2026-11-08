@@ -54,6 +54,18 @@ def test_abstain_out_of_scope():
     assert router.call_count == 1
 
 
+def test_invoke_with_question_only_initializes_runtime_state():
+    router = FakeRouter(['{"action":"abstain","query":""}'])
+    agent = build_agent(router, FakeEmbedder(), FakeStore([]))
+
+    result = agent.invoke({"question": "Pizza recipe?"})
+
+    assert result["status"] == "abstained"
+    assert result["stop_reason"] == "out_of_scope"
+    assert result["router_calls"] == 1
+    assert "Plan: abstain" in result["steps"]
+
+
 def test_retry_after_bad_grading():
     router = FakeRouter(['{"action":"retrieve","query":"attention"}', "no", "better transformer query",
                          "yes", "Answer [c1].", "CLAIM: A\nVERDICT: supported\nCHUNKS: c1"])

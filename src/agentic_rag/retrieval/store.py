@@ -10,10 +10,11 @@ class VectorStore:
     def __init__(self, url: str | None = None, api_key: str | None = None):
         load_dotenv()
         self.url = url or os.getenv("QDRANT_URL", "http://localhost:6333")
-        self.client = QdrantClient(
-            url=self.url,
-            api_key=api_key or os.getenv("QDRANT_API_KEY") or None,
-        )
+        configured_api_key = api_key or os.getenv("QDRANT_API_KEY")
+        if configured_api_key:
+            self.client = QdrantClient(url=self.url, api_key=configured_api_key)
+        else:
+            self.client = QdrantClient(url=self.url)
         self.collection = "agentic_rag_docs"
 
     def create_collection(self, vector_size: int = 768) -> None:

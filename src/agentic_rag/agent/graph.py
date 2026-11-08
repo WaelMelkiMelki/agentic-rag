@@ -22,6 +22,13 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
     if top_k < 1 or max_router_calls < 1 or max_rounds < 0:
         raise ValueError("top_k and max_router_calls must be positive; max_rounds cannot be negative")
 
+    def initialize(state: AgentState) -> dict:
+        """Fill graph bookkeeping defaults so callers only need to pass a question."""
+        return {
+            "router_calls": state.get("router_calls", 0),
+            "steps": state.get("steps", []),
+        }
+
     def plan(state: AgentState) -> dict:
         if state["router_calls"] >= max_router_calls:
             return {"route": "abstain", "stop_reason": "budget_exhausted",
@@ -143,10 +150,11 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
         return "rewrite" if can_retry else "finalize"
 
     builder = StateGraph(AgentState)
-    for name, fn in [("plan", plan), ("retrieve", retrieve), ("grade", grade), ("generate", generate),
+    for name, fn in [("initialize", initialize), ("plan", plan), ("retrieve", retrieve), ("grade", grade), ("generate", generate),
                      ("ground", ground), ("rewrite", rewrite), ("abstain", abstain), ("finalize", finalize)]:
         builder.add_node(name, fn)
-    builder.add_edge(START, "plan")
+    builder.add_edge(START, "initialize")
+    builder.add_edge("initialize", "plan")
     builder.add_conditional_edges("plan", after_plan, {"retrieve": "retrieve", "abstain": "abstain"})
     builder.add_edge("retrieve", "grade")
     builder.add_conditional_edges("grade", after_grade,
