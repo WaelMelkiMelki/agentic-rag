@@ -123,6 +123,16 @@ def test_all_providers_failing_raises():
         router.invoke_with_fallback("hello")
 
 
+def test_ollama_disabled_skips_straight_to_gemini(monkeypatch):
+    monkeypatch.setenv("OLLAMA_ENABLED", "false")
+    phi, qwen, gemini = FakeLLM("phi"), FakeLLM("qwen"), FakeLLM("gemini")
+    router = _router(ollama_phi=phi, ollama_qwen=qwen, gemini=gemini)
+    assert router.invoke_with_fallback("hello") == "gemini"
+    assert phi.calls == 0
+    assert qwen.calls == 0
+    assert gemini.calls == 1
+
+
 def test_get_llm_supports_all_providers():
     phi, qwen, gemini, openrouter = FakeLLM(), FakeLLM(), FakeLLM(), FakeLLM()
     router = _router(ollama_phi=phi, ollama_qwen=qwen, gemini=gemini, openrouter=openrouter)
