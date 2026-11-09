@@ -1,8 +1,14 @@
 # Agentic RAG
 
-An agentic retrieval-augmented QA app with a FastAPI API and a Streamlit UI.
-The API exposes a plain RAG baseline (B1) and the self-correcting LangGraph
-agent (B4).
+A self-correcting document QA agent that retrieves, generates, and **verifies its own
+answers** against source documents — built on three arXiv ML papers.
+
+The API serves two systems side by side so they can be compared directly:
+
+* **B1 — Plain RAG:** retrieve → generate.
+* **B4 — Agentic RAG:** a LangGraph state machine that plans, grades retrieved
+  chunks, generates, checks every claim against the sources, and rewrites the query
+  when grounding fails.
 
 ## 🚀 Live Demo
 
@@ -11,90 +17,183 @@ agent (B4).
 | **Chat UI** | [waelmelki-agentic-rag.streamlit.app](https://waelmelki-agentic-rag.streamlit.app/) |
 | **API** | [agentic-rag-1jii.onrender.com](https://agentic-rag-1jii.onrender.com) |
 | **API Docs** | [agentic-rag-1jii.onrender.com/docs](https://agentic-rag-1jii.onrender.com/docs) |
+| **Demo Video** | _coming soon_ |
 
-> ⚠️ Free-tier hosting: the first request may take 30–60 seconds to wake the server.
+> ⚠️ Free-tier hosting: the first request can take 30–60 s while Render wakes the
+> container. Long agent queries can take another 30–60 s.
 
-## Run locally with Docker Compose
+## 📊 Results
 
-Requirements: Docker Compose, `uv`, and Python 3.12 for host-side ingestion.
+Retrieval was measured on the 12 answerable questions in `evals/dataset/dev_set.jsonl`
+against the 77-chunk collection.
 
-1. Copy `.env.example` to `.env` and add your Gemini and OpenRouter keys.
-2. If the Phase 2 `qdrant` container is running, stop it first so Compose can
-   bind port 6333. Its `qdrant_storage` volume is reused by Compose.
-3. Start the API and Qdrant:
+| System | Hit@5 | MRR | Answer quality | Abstention | LLM calls / query |
+|--------|-------|-----|----------------|------------|-------------------|
+| Closed-book (B0) | — | — | __ / 5 | — | 1 |
+| Plain RAG (B1) | 0.92 (11/12) | 0.81 | __ / 5 | __ % | 1 |
+| Full Agent (B4) | __ | __ | __ / 5 | __ % | ~8 |
 
-   ```bash
-   docker compose up --build -d
-   curl http://localhost:8000/health
-   ```
+**Key finding:** _to be filled after the B0/B1/B4 ablation run — e.g. “the agent raised
+abstention accuracy on unanswerable questions from __% to __% at ~8× the LLM cost.”_
 
-   A new Qdrant volume reports zero documents until you ingest the corpus.
-   The API docs are at `http://localhost:8000/docs`.
+Known gaps (see [Evaluation Report](docs/eval_report.md)): the B1 answer-quality run
+stopped early on Gemini's daily free-tier quota, so the three recorded judge scores
+(5, 3, 4) are a partial sample and refusal rates are not yet established.
 
-4. Run the Streamlit UI in another terminal:
+## 🏗 Architecture
 
-   ```bash
-   uv run --extra ui streamlit run ui/app.py
-   ```
+```mermaid
+graph LR
+    User([User]) --> UI[Streamlit UI]
+    UI --> API[FastAPI<br/>/query]
+    API --> B1[Plain RAG B1]
+    API --> B4[LangGraph Agent B4]
 
-   Open `http://localhost:8501`. The UI uses `API_URL` from the environment or
-   Streamlit secrets; it defaults to `http://localhost:8000`.
+    B4 --> Init[Initialize]
+    Init --> Plan[Plan]
+    Plan --> Retrieve[Retrieve]
+    Retrieve --> Grade[Grade chunks]
+    Grade -->|relevant| Generate[Generate]
+    Grade -->|irrelevant| Rewrite[Rewrite query]
+    Rewrite --> Retrieve
+    Generate --> Ground[Grounding check]
+    Ground -->|grounded| Finalize[Finalize]
+    Ground -->|unsupported claims| Rewrite
+    Plan -->|out of scope| Abstain[Abstain]
 
-Ingest PDFs with the same FastEmbed ONNX model used by the API:
+    Retrieve --> Embed[FastEmbed<br/>MiniLM 384-d]
+    Embed --> Qdrant[(Qdrant Cloud)]
+    B1 --> Embed
 
-```bash
-QDRANT_URL=http://localhost:6333 uv run python -m agentic_rag.ingestion.ingest_all
+    Plan --> Router[LLM Router]
+    Grade --> Router
+    Generate --> Router
+    Ground --> Router
+    Rewrite --> Router
+
+    Router --> Ollama[Ollama<br/>phi3 → qwen2.5<br/>local only]
+    Router --> Gemini[Gemini<br/>gemini-3.8-flash]
+    Router --> OpenRouter[OpenRouter<br/>openrouter/free]
+
+    API --> Langfuse[Langfuse]
 ```
 
-The older `CachedEmbedder` implementation still uses Sentence Transformers;
-install the optional `ingestion` extra only if you use that legacy embedder.
+Full component breakdown: [docs/architecture.md](docs/architecture.md).
 
-Stop the containers with `docker compose down`. The named Qdrant volume remains
-so the collection persists.
+## 🤖 LLM provider priority
 
-## LLM routing (Ollama-first locally, Gemini/OpenRouter on Render)
+| Environment | Order |
+|---|---|
+| **Local** | Ollama `phi3:latest` → Ollama `qwen2.5:latest` → Gemini `gemini-3.8-flash` → OpenRouter `openrouter/free` |
+| **Deployed** | Gemini `gemini-3.8-flash` → OpenRouter `openrouter/free` |
 
-`LLMRouter` tries providers in order: **Ollama phi3 → Ollama qwen2.5 →
-Gemini → OpenRouter**. Ollama models are **local-only**; on Render set
-`OLLAMA_ENABLED=false` so production uses **Gemini (`gemini-3.8-flash`)
-then OpenRouter (`openrouter/free`)** only. If Ollama is unreachable it
-is skipped for the rest of the process and the router falls back to
-Gemini, then OpenRouter.
+Ollama is **local-only**: free tunneling services (Cloudflare Quick Tunnel, ngrok
+free tier) block API traffic with **403** responses, so Render runs with
+`OLLAMA_ENABLED=false`.
+
+Failure caching keeps the agent's ~8–10 calls per query from paying repeated
+timeouts: the first Ollama error skips both local models for the remaining
+process lifetime, and a Gemini quota (429) error skips Gemini.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OLLAMA_ENABLED` | `true` | Set to `false` on Render to skip Ollama (Gemini + OpenRouter only) |
+| `OLLAMA_ENABLED` | `true` | Set `false` on Render to skip Ollama |
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible endpoint |
-| `OLLAMA_API_KEY` | `ollama` | Dummy key (Ollama ignores it, ChatOpenAI requires one) |
-| `OLLAMA_PHI_MODEL` | `phi3:latest` | Primary Ollama model |
-| `OLLAMA_QWEN_MODEL` | `qwen2.5:latest` | Secondary Ollama model |
+| `OLLAMA_API_KEY` | `ollama` | Dummy key (Ollama ignores it, ChatOpenAI requires it) |
+| `OLLAMA_PHI_MODEL` | `phi3:latest` | Primary local model |
+| `OLLAMA_QWEN_MODEL` | `qwen2.5:latest` | Secondary local model |
+| `GEMINI_API_KEY` | — | Gemini key |
+| `OPENROUTER_API_KEY` | — | OpenRouter key |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter endpoint |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` | — | Optional tracing; disabled if unset |
 
-For local Docker Ollama-first, start the optional Ollama service and pull
-the models:
+## 🛠 Tech Stack
 
-```bash
-docker compose --profile ollama up -d
-docker compose exec ollama ollama pull phi3:latest
-docker compose exec ollama ollama pull qwen2.5:latest
+* **LLM routing:** 4-tier fallback — Ollama `phi3:latest`, Ollama `qwen2.5:latest`,
+  Gemini `gemini-3.8-flash`, OpenRouter `openrouter/free`
+* **Agent framework:** LangGraph (typed `AgentState`, conditional edges, retry loops)
+* **Embeddings:** FastEmbed ONNX — `sentence-transformers/all-MiniLM-L6-v2`, 384-dim
+* **Vector DB:** Qdrant Cloud (free tier, cosine distance)
+* **API:** FastAPI + Uvicorn, Pydantic v2 request/response models
+* **UI:** Streamlit
+* **Observability:** Langfuse (per-query traces, optional at runtime)
+* **LLM SDKs:** `langchain-openai`, `langchain-google-genai`
+* **Ingestion:** PyMuPDF4LLM → chunking → embed → upsert
+* **Deployment:** Docker → Render (API), Streamlit Community Cloud (UI), GitHub Actions keep-alive
+* **Testing:** pytest with fake LLM/router injection; live injection suite behind `-m integration`
+
+## 📁 Project Structure
+
+```
+agentic-rag/
+├── src/agentic_rag/
+│   ├── agent/          # LangGraph agent (initialize → plan → retrieve → grade → generate → ground → finalize)
+│   │   ├── prompts.py  # GENERATE_PROMPT shared by B1 and B4
+│   │   └── rag.py      # SimpleRAG baseline (B1)
+│   ├── llm/            # LLMRouter (phi3 → qwen2.5 → Gemini → OpenRouter) + usage tracker
+│   ├── retrieval/      # FastEmbed embedder + Qdrant vector store
+│   ├── ingestion/      # PDF download → parse → chunk → embed pipeline
+│   ├── api/            # FastAPI app + singleton deps
+│   └── tracing.py      # Optional Langfuse tracing (fail-safe, version-tolerant)
+├── ui/                 # Streamlit chat interface
+├── evals/              # Retrieval metrics, LLM judge, ablation harness, dev set
+├── tests/              # unit (offline, fakes) + integration (API, UI, live injection)
+├── configs/            # Corpus manifest
+└── docs/               # Architecture, eval report, learning log, phase reports
 ```
 
-## Cloud deployment
+## 🚀 Quick Start
 
-- **API:** Create a Render Docker web service from the repository root using
-  `Dockerfile`. Set `GEMINI_API_KEY`, `OPENROUTER_API_KEY`,
-  `OPENROUTER_BASE_URL`, `QDRANT_URL`, and `QDRANT_API_KEY` in Render's
-  environment settings. Point Qdrant variables at your cloud cluster.
-  Ollama is local-only: set `OLLAMA_ENABLED=false` in Render so
-  production uses Gemini + OpenRouter only (no Ollama calls).
-- **UI:** Create a Streamlit Community Cloud app with `ui/app.py` as the entry
-  point and `ui/requirements.txt` as its dependency file. Set this secret in
-  the app settings:
+### Local (with Ollama)
 
-  ```toml
-  API_URL = "https://<your-render-service>.onrender.com"
-  ```
+```bash
+git clone https://github.com/WaelMelkiMelki/agentic-rag.git
+cd agentic-rag
+cp .env.example .env          # add GEMINI_API_KEY / OPENROUTER_API_KEY / QDRANT_*
 
-- **Weekly health checks:** Add `QDRANT_URL`, `QDRANT_API_KEY`, and
-  `RENDER_API_URL` as GitHub Actions repository secrets.
-  `.github/workflows/keepalive.yml` checks Qdrant and Render every Monday.
-  The weekly Render check does not prevent the free service from sleeping.
+uv sync
+ollama pull phi3:latest
+ollama pull qwen2.5:latest
+
+docker compose up -d qdrant
+python -m agentic_rag.ingestion.ingest_all
+
+uvicorn agentic_rag.api.main:app --reload      # http://localhost:8000/docs
+uv run --extra ui streamlit run ui/app.py      # http://localhost:8501
+```
+
+Leave `OLLAMA_ENABLED` at its default (`true`) so local queries use Ollama first and
+only fall back to the cloud.
+
+### Docker Compose (API + Qdrant + optional Ollama)
+
+```bash
+docker compose --profile ollama up --build -d
+docker compose exec ollama ollama pull phi3:latest
+docker compose exec ollama ollama pull qwen2.5:latest
+curl http://localhost:8000/health
+```
+
+### Deployed configuration (Render)
+
+Set `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `QDRANT_URL`,
+`QDRANT_API_KEY`, optional `LANGFUSE_*`, and **`OLLAMA_ENABLED=false`**.
+
+## 🧪 Tests
+
+```bash
+pytest -q                                   # offline suite, no keys needed
+pytest -m integration tests/integration/test_injection.py -v   # live LLM injection tests
+```
+
+Offline tests inject fake LLMs and fake API dependencies. The injection suite makes
+real LLM calls, is marked `integration`, and skips itself when no credentials or no
+reachable Qdrant collection is present.
+
+## 📖 Documentation
+
+* [Architecture](docs/architecture.md)
+* [Evaluation Report](docs/eval_report.md)
+* [Learning Log](docs/learning_log.md)
+* [Phase 8 Report](docs/phase8_report.md)
+* [Corpus manifest](configs/corpus_manifest.yaml)
