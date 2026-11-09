@@ -111,6 +111,15 @@ def main() -> int:
             {"Authorization": f"Basic {token}"},
         ))
 
+    # Ollama is optional (Ollama-first routing falls back to Gemini/OpenRouter),
+    # so report its status without affecting the exit code.
+    if "OLLAMA_BASE_URL" in values:
+        ollama_base = values["OLLAMA_BASE_URL"].rstrip("/")
+        # OLLAMA_BASE_URL points at the OpenAI-compatible /v1 API; the native
+        # health endpoint lives at the server root.
+        ollama_root = ollama_base[:-3].rstrip("/") if ollama_base.endswith("/v1") else ollama_base
+        request_status("Ollama service (optional)", f"{ollama_root}/api/tags")
+
     qdrant_url = values.get("QDRANT_URL", "http://localhost:6333").rstrip("/")
     results.append(request_status("Qdrant service", f"{qdrant_url}/readyz"))
 
