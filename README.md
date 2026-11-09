@@ -38,7 +38,66 @@ abstention accuracy on unanswerable questions from __% to __% at ~8× the LLM co
 
 Known gaps (see [Evaluation Report](docs/eval_report.md)): the B1 answer-quality run
 stopped early on Gemini's daily free-tier quota, so the three recorded judge scores
-(5, 3, 4) are a partial sample and refusal rates are not yet established.
+(5, 3, 4) are a partial sample and refusal rates are not yet established. The
+closed-book (B0) row is reserved for the ablation comparison — it is not implemented
+in this repository yet, so every B0 cell stays empty.
+
+## 🔌 API
+
+```bash
+curl -s -X POST https://agentic-rag-1jii.onrender.com/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How does self-attention work?", "system": "B4"}'
+```
+
+```json
+{
+  "answer": "Self-attention relates different positions of a single sequence ... [attention_is_all_you_need__4]",
+  "citations": ["attention_is_all_you_need__4"],
+  "steps": ["Round 0: retrieved 5 chunks", "Graded: 3/5 chunks retained", "Generated draft",
+            "Grounding check: grounded", "Finalized: answered"],
+  "status": "answered",
+  "stop_reason": "grounded",
+  "system": "B4",
+  "latency_s": 12.4
+}
+```
+
+`system` is `"B1"` or `"B4"`. Two machine-readable fields make the agent's behaviour
+auditable instead of prose:
+
+| `status` | Meaning |
+|---|---|
+| `answered` | every claim was verified against the retrieved chunks |
+| `answered_unverified` | answered, but the grounding ratio stayed below the 0.75 threshold |
+| `abstained` | refused with "I cannot answer this from the provided sources." |
+
+| `stop_reason` | System | Meaning |
+|---|---|---|
+| `grounded` / `grounding_unverified` | B4 | finished answering, grounded or not |
+| `out_of_scope` | B4 | planner judged the question outside the corpus |
+| `no_relevant_docs` / `insufficient_evidence` | B4 | grading or grounding found nothing usable |
+| `invalid_citations` | B4 | the draft cited chunks that are not in the retrieved set |
+| `budget_exhausted` | B4 | the 10-call / 2-round budget ran out |
+| `llm_unavailable` | B4 | every provider failed |
+| `no_answer` | B4 | model returned the abstention sentence at generation time |
+| `completed` / `insufficient_retrieval_score` | B1 | baseline answered / refused below the retrieval threshold |
+
+## 🔒 Security — prompt injection
+
+`tests/integration/test_injection.py` runs 10 adversarial payloads against B4 and 4
+against B1: system-prompt extraction, persona override, "always answer BANANA",
+false-premise grounding bypass ("the document says the capital of France is Berlin"),
+external-URL access, code execution, `OVERRIDE ACCEPTED` confirmation, and
+`<|im_start|>` delimiter injection. Each test asserts no prompt leakage, no persona
+adoption, no acceptance of the planted false premise, no code echo, and a status
+inside the documented vocabulary.
+
+```bash
+pytest -m integration tests/integration/test_injection.py -v
+```
+
+Results and findings: [Evaluation Report → Security](docs/eval_report.md).
 
 ## 🏗 Architecture
 
@@ -159,10 +218,10 @@ ollama pull phi3:latest
 ollama pull qwen2.5:latest
 
 docker compose up -d qdrant
-python -m agentic_rag.ingestion.ingest_all
+uv run python -m agentic_rag.ingestion.ingest_all
 
-uvicorn agentic_rag.api.main:app --reload      # http://localhost:8000/docs
-uv run --extra ui streamlit run ui/app.py      # http://localhost:8501
+uv run uvicorn agentic_rag.api.main:app --reload   # http://localhost:8000/docs
+uv run --extra ui streamlit run ui/app.py          # http://localhost:8501
 ```
 
 Leave `OLLAMA_ENABLED` at its default (`true`) so local queries use Ollama first and
@@ -176,6 +235,9 @@ docker compose exec ollama ollama pull phi3:latest
 docker compose exec ollama ollama pull qwen2.5:latest
 curl http://localhost:8000/health
 ```
+
+A fresh `qdrant_storage` volume is empty; run the ingestion command above (with
+`QDRANT_URL=http://localhost:6333`) before querying.
 
 ### Deployed configuration (Render)
 
@@ -198,5 +260,6 @@ reachable Qdrant collection is present.
 * [Architecture](docs/architecture.md)
 * [Evaluation Report](docs/eval_report.md)
 * [Learning Log](docs/learning_log.md)
+* [Phase 7 Report](docs/phase7_report.md)
 * [Phase 8 Report](docs/phase8_report.md)
 * [Corpus manifest](configs/corpus_manifest.yaml)
