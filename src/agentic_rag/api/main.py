@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from agentic_rag.api.deps import get_agent, get_baseline, get_store
+from agentic_rag.tracing import flush, trace_agent
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,8 @@ async def lifespan(app: FastAPI):
     get_baseline()
     logger.info("API ready")
     yield
+    flush()
+    logger.info("Flushed Langfuse traces")
 
 
 app = FastAPI(title="Agentic RAG API", version="0.1.0", lifespan=lifespan)
@@ -80,6 +83,20 @@ def query(req: QueryRequest) -> QueryResponse:
             steps = result["steps"]
             status = result["status"]
             stop_reason = result["stop_reason"]
+
+        trace_id = trace_agent(
+            req.question,
+            {
+                "answer": answer,
+                "citations": citations,
+                "steps": steps,
+                "status": status,
+                "stop_reason": stop_reason,
+                "system": req.system,
+            },
+        )
+        if trace_id:
+            logger.info("Langfuse trace: %s", trace_id)
 
         return QueryResponse(
             answer=answer,
