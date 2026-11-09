@@ -52,12 +52,41 @@ install the optional `ingestion` extra only if you use that legacy embedder.
 Stop the containers with `docker compose down`. The named Qdrant volume remains
 so the collection persists.
 
+## LLM routing (Ollama-first)
+
+`LLMRouter` tries providers in order: **Ollama phi3 → Ollama qwen2.5 →
+Gemini → OpenRouter**. Ollama is preferred for local/self-hosted inference
+(via the Ollama OpenAI-compatible endpoint, e.g. through a Cloudflare
+Tunnel from Render); if it is unreachable it is skipped for the rest of
+the process and the router falls back to Gemini (`gemini-3.8-flash`),
+then OpenRouter (`openrouter/free`).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible endpoint |
+| `OLLAMA_API_KEY` | `ollama` | Dummy key (Ollama ignores it, ChatOpenAI requires one) |
+| `OLLAMA_PHI_MODEL` | `phi3:latest` | Primary Ollama model |
+| `OLLAMA_QWEN_MODEL` | `qwen2.5:latest` | Secondary Ollama model |
+
+For local Docker Ollama-first, start the optional Ollama service and pull
+the models:
+
+```bash
+docker compose --profile ollama up -d
+docker compose exec ollama ollama pull phi3:latest
+docker compose exec ollama ollama pull qwen2.5:latest
+```
+
 ## Cloud deployment
 
 - **API:** Create a Render Docker web service from the repository root using
   `Dockerfile`. Set `GEMINI_API_KEY`, `OPENROUTER_API_KEY`,
   `OPENROUTER_BASE_URL`, `QDRANT_URL`, and `QDRANT_API_KEY` in Render's
   environment settings. Point Qdrant variables at your cloud cluster.
+  For Ollama-first on Render, also set `OLLAMA_BASE_URL` to your
+  Cloudflare Tunnel URL for the local Ollama instance
+  (e.g. `https://ollama.example.com/v1`) with `OLLAMA_PHI_MODEL` and
+  `OLLAMA_QWEN_MODEL`.
 - **UI:** Create a Streamlit Community Cloud app with `ui/app.py` as the entry
   point and `ui/requirements.txt` as its dependency file. Set this secret in
   the app settings:
