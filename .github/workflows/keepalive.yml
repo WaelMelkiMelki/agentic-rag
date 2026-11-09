@@ -1,4 +1,4 @@
-name: Keep Qdrant Cloud active
+name: Keep Qdrant Alive
 
 on:
   schedule:
@@ -9,16 +9,25 @@ permissions:
   contents: read
 
 jobs:
-  ping-qdrant:
+  ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Check Qdrant Cloud
+      - name: Ping Qdrant Cloud
         env:
           QDRANT_URL: ${{ secrets.QDRANT_URL }}
           QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
         run: |
           test -n "$QDRANT_URL"
           test -n "$QDRANT_API_KEY"
-          curl --fail --silent --show-error --max-time 30 \
+          curl -sf --max-time 30 \
             -H "api-key: $QDRANT_API_KEY" \
-            "$QDRANT_URL/collections"
+            "$QDRANT_URL/collections" \
+            && echo "Qdrant OK" || { echo "Qdrant ping failed"; exit 1; }
+
+      - name: Ping Render API
+        env:
+          RENDER_API_URL: ${{ secrets.RENDER_API_URL }}
+        run: |
+          test -n "$RENDER_API_URL"
+          curl -sf --max-time 60 "$RENDER_API_URL/health" \
+            && echo "Render OK" || echo "Render ping failed"

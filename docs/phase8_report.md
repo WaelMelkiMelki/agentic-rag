@@ -22,15 +22,15 @@ Qdrant is available.
 - Updated the Streamlit UI to read `API_URL` from environment variables or
   Streamlit secrets and to report a waking API separately from an unreachable
   or degraded API.
-- Added a weekly Qdrant Cloud ping workflow. It does not ping Render because
-  Render's free service sleeps after inactivity; a weekly request would not
-  prevent that behavior.
+- Added a weekly Qdrant Cloud ping and Render API health check workflow. The
+  weekly Render check does not prevent the free service from sleeping.
 - Updated the README with local and cloud setup instructions.
 
 ## Verification
 
 - `uv lock --check` — passed.
 - `docker compose config --quiet` — passed.
+- `.github/workflows/keepalive.yml` YAML syntax check — passed.
 - `ty check` on the changed API, embedder, store, and Streamlit files — passed.
 - `.venv/bin/pytest -q` — 25 passed after the B4 initialization, Qdrant
   configuration, and ingestion-import regression tests.

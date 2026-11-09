@@ -4,6 +4,16 @@ An agentic retrieval-augmented QA app with a FastAPI API and a Streamlit UI.
 The API exposes a plain RAG baseline (B1) and the self-correcting LangGraph
 agent (B4).
 
+## 🚀 Live Demo
+
+| Service | URL |
+|---------|-----|
+| **Chat UI** | [waelmelki-agentic-rag.streamlit.app](https://waelmelki-agentic-rag.streamlit.app/) |
+| **API** | [agentic-rag-1jii.onrender.com](https://agentic-rag-1jii.onrender.com) |
+| **API Docs** | [agentic-rag-1jii.onrender.com/docs](https://agentic-rag-1jii.onrender.com/docs) |
+
+> ⚠️ Free-tier hosting: the first request may take 30–60 seconds to wake the server.
+
 ## Run locally with Docker Compose
 
 Requirements: Docker Compose, `uv`, and Python 3.12 for host-side ingestion.
@@ -56,9 +66,7 @@ so the collection persists.
   API_URL = "https://<your-render-service>.onrender.com"
   ```
 
-- **Qdrant keep-alive:** Add `QDRANT_URL` and `QDRANT_API_KEY` as GitHub Actions
-  repository secrets. `.github/workflows/keepalive.yml` pings the cluster
-  weekly; it does not keep the Render service awake.
-
-Live service links will be added after the cloud services are created and
-verified.
+- **Weekly health checks:** Add `QDRANT_URL`, `QDRANT_API_KEY`, and
+  `RENDER_API_URL` as GitHub Actions repository secrets.
+  `.github/workflows/keepalive.yml` checks Qdrant and Render every Monday.
+  The weekly Render check does not prevent the free service from sleeping.
