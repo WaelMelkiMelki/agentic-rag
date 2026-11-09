@@ -38,6 +38,7 @@ services:
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-ollama}
       OLLAMA_PHI_MODEL: ${OLLAMA_PHI_MODEL:-phi3:latest}
       OLLAMA_QWEN_MODEL: ${OLLAMA_QWEN_MODEL:-qwen2.5:latest}
+      OLLAMA_TIMEOUT: ${OLLAMA_TIMEOUT:-120}
     depends_on:
       - qdrant
     restart: unless-stopped
