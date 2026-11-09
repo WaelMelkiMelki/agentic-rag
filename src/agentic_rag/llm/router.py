@@ -24,6 +24,9 @@ class LLMRouter:
     local Ollama instance is down), Ollama is marked unavailable for the
     rest of the process so the agent's repeated router calls don't each
     pay a connection/timeout cost.
+
+    Set ``OLLAMA_ENABLED=false`` to skip Ollama entirely and use only
+    Gemini + OpenRouter (e.g. on Render, where Ollama is local-only).
     """
 
     def __init__(
@@ -36,7 +39,11 @@ class LLMRouter:
     ):
         self.tracker = tracker
         self._gemini_quota_exhausted = False
-        self._ollama_unavailable = False
+        # OLLAMA_ENABLED=false skips Ollama (local-only use; Render uses
+        # Gemini + OpenRouter only).
+        self._ollama_unavailable = os.getenv(
+            "OLLAMA_ENABLED", "true"
+        ).strip().lower() in ("0", "false", "no", "off")
 
         ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
         ollama_api_key = os.getenv("OLLAMA_API_KEY", "ollama")

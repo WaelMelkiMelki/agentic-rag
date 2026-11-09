@@ -31,8 +31,9 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-      # Ollama-first: when the ollama profile is running this resolves to
+      # Ollama-first locally: when the ollama profile is running this resolves to
       # the compose service; otherwise the router falls back to Gemini/OpenRouter.
+      OLLAMA_ENABLED: ${OLLAMA_ENABLED:-true}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-ollama}
       OLLAMA_PHI_MODEL: ${OLLAMA_PHI_MODEL:-phi3:latest}
