@@ -38,8 +38,9 @@
 
 Failure caching keeps the agent's ~8–10 calls per query cheap:
 
-* the first Ollama failure sets `_ollama_unavailable`, skipping both local models
-  for the rest of the process;
+* the first Ollama *connection* failure sets `_ollama_unavailable`, skipping both
+  local models for the rest of the process; a timeout (`OLLAMA_TIMEOUT`, default
+  120s) does not, because it usually means the model is still loading;
 * a Gemini 429/quota error sets `_gemini_quota_exhausted`;
 * `invoke_with_fallback()` returns a plain string and raises `RuntimeError`
   only when every provider fails.

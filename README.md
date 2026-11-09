@@ -92,8 +92,10 @@ free tier) block API traffic with **403** responses, so Render runs with
 `OLLAMA_ENABLED=false`.
 
 Failure caching keeps the agent's ~8–10 calls per query from paying repeated
-timeouts: the first Ollama error skips both local models for the remaining
-process lifetime, and a Gemini quota (429) error skips Gemini.
+timeouts: a **connection** error skips both local models for the remaining
+process lifetime, and a Gemini quota (429) error skips Gemini. A local
+**timeout** only affects that call — it usually means phi3 was still loading,
+so the next query retries Ollama instead of silently going cloud-only.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -102,6 +104,7 @@ process lifetime, and a Gemini quota (429) error skips Gemini.
 | `OLLAMA_API_KEY` | `ollama` | Dummy key (Ollama ignores it, ChatOpenAI requires it) |
 | `OLLAMA_PHI_MODEL` | `phi3:latest` | Primary local model |
 | `OLLAMA_QWEN_MODEL` | `qwen2.5:latest` | Secondary local model |
+| `OLLAMA_TIMEOUT` | `120` | Seconds per local call (phi3 loading on first use is slow) |
 | `GEMINI_API_KEY` | — | Gemini key |
 | `OPENROUTER_API_KEY` | — | OpenRouter key |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter endpoint |

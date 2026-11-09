@@ -143,3 +143,50 @@ def test_get_llm_supports_all_providers():
     assert router.get_llm() is phi
     with pytest.raises(ValueError, match="Unknown provider"):
         router.get_llm("bogus")
+
+
+class APITimeoutError(Exception):
+    """Mimics openai.APITimeoutError (detected by class name)."""
+
+
+def test_timeout_does_not_disable_ollama_for_the_process(monkeypatch):
+    """A slow/cold phi3 must not push every later query to the cloud."""
+    phi = FakeLLM(error=APITimeoutError("Request timed out."))
+    qwen = FakeLLM(error=TimeoutError("socket timed out"))
+    gemini = FakeLLM("gemini")
+    router = _router(ollama_phi=phi, ollama_qwen=qwen, gemini=gemini)
+
+    assert router.invoke_with_fallback("first") == "gemini"
+    assert phi.calls == 1 and qwen.calls == 1
+    assert router._ollama_unavailable is False
+
+    # Next query tries the local models again, in order.
+    assert router.invoke_with_fallback("second") == "gemini"
+    assert phi.calls == 2 and qwen.calls == 2
+
+
+def test_connection_error_still_disables_ollama(monkeypatch):
+    """Ollama not running (connection refused) must be cached, not retried."""
+    phi = FakeLLM(error=ConnectionError("Connection refused"))
+    qwen = FakeLLM("qwen")
+    gemini = FakeLLM("gemini")
+    router = _router(ollama_phi=phi, ollama_qwen=qwen, gemini=gemini)
+
+    assert router.invoke_with_fallback("first") == "qwen"
+    assert router._ollama_unavailable is True
+
+    assert router.invoke_with_fallback("second") == "gemini"
+    assert phi.calls == 1          # not retried
+    assert qwen.calls == 1
+
+
+def test_ollama_timeout_is_configurable(monkeypatch):
+    monkeypatch.setenv("OLLAMA_TIMEOUT", "240")
+    router = LLMRouter()
+    assert router._ollama_timeout == 240.0
+
+
+def test_ollama_timeout_defaults_to_120(monkeypatch):
+    monkeypatch.delenv("OLLAMA_TIMEOUT", raising=False)
+    router = LLMRouter()
+    assert router._ollama_timeout == 120.0

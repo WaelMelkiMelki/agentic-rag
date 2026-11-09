@@ -20,10 +20,13 @@ class LLMRouter:
        rest of the process once a quota/rate-limit error is seen.
     4. **OpenRouter** (``openrouter/free``) — last resort.
 
-    If either Ollama model fails once (e.g. the Cloudflare Tunnel to the
-    local Ollama instance is down), Ollama is marked unavailable for the
-    rest of the process so the agent's repeated router calls don't each
-    pay a connection/timeout cost.
+    If either Ollama model fails with a connection error (e.g. Ollama is not
+    running, or the Cloudflare Tunnel is down), Ollama is marked unavailable
+    for the rest of the process so the agent's repeated router calls don't
+    each pay a connection cost. A *timeout* is treated differently: it usually
+    means the model is still loading or generating, so Ollama stays enabled and
+    the next query retries it. ``OLLAMA_TIMEOUT`` (default 120s) bounds each
+    local call.
 
     Set ``OLLAMA_ENABLED=false`` to skip Ollama entirely and use only
     Gemini + OpenRouter (e.g. on Render, where Ollama is local-only).
@@ -49,8 +52,11 @@ class LLMRouter:
         ollama_api_key = os.getenv("OLLAMA_API_KEY", "ollama")
         phi_model = os.getenv("OLLAMA_PHI_MODEL", "phi3:latest")
         qwen_model = os.getenv("OLLAMA_QWEN_MODEL", "qwen2.5:latest")
+        # phi3 needs time to load into memory on a laptop on the first call.
+        ollama_timeout = float(os.getenv("OLLAMA_TIMEOUT", "120"))
         self._phi_model = phi_model
         self._qwen_model = qwen_model
+        self._ollama_timeout = ollama_timeout
 
         self.ollama_phi = (
             ollama_phi
@@ -60,7 +66,7 @@ class LLMRouter:
                 base_url=ollama_base_url,
                 api_key=ollama_api_key,
                 temperature=0,
-                timeout=60,
+                timeout=ollama_timeout,
                 max_retries=0,
             )
         )
@@ -73,7 +79,7 @@ class LLMRouter:
                 base_url=ollama_base_url,
                 api_key=ollama_api_key,
                 temperature=0,
-                timeout=60,
+                timeout=ollama_timeout,
                 max_retries=0,
             )
         )
@@ -139,7 +145,7 @@ class LLMRouter:
                 return response.content
             except Exception as error:
                 print(f"⚠️ Ollama failed: {error}")
-                self._ollama_unavailable = True
+                self._note_ollama_failure(error)
 
         if self.ollama_qwen is not None and not ollama_was_unavailable:
             print(f"🔄 Using Ollama ({self._qwen_model})...")
@@ -149,7 +155,7 @@ class LLMRouter:
                 return response.content
             except Exception as error:
                 print(f"⚠️ Ollama failed: {error}")
-                self._ollama_unavailable = True
+                self._note_ollama_failure(error)
 
         if self.gemini is not None and not self._gemini_quota_exhausted:
             print("🔄 Using Gemini...")
@@ -174,12 +180,38 @@ class LLMRouter:
 
         raise RuntimeError("All providers failed. Check your API keys.")
 
+    def _note_ollama_failure(self, error: Exception) -> None:
+        """Decide whether this failure should disable Ollama for the process.
+
+        A connection error means Ollama is not running (or the tunnel is down),
+        so skip both local models from now on. A timeout usually means the model
+        is still loading/generating, so the next query tries Ollama again.
+        """
+        if _is_timeout_error(error):
+            print(
+                "   Ollama timed out; keeping it enabled for the next query "
+                "(raise OLLAMA_TIMEOUT if phi3 is still loading)."
+            )
+            return
+        self._ollama_unavailable = True
+
     def _record_usage(self, response, provider: str, model) -> None:
         if self.tracker is not None:
             model_name = getattr(model, "model_name", None) or getattr(
                 model, "model", "unknown"
             )
             self.tracker.record(response, provider, model_name)
+
+
+def _is_timeout_error(error: Exception) -> bool:
+    """Recognize request timeouts (model busy/cold) as opposed to unreachable servers."""
+    if isinstance(error, TimeoutError):
+        return True
+    for klass in type(error).__mro__:
+        if "timeout" in klass.__name__.casefold():
+            return True
+    message = str(error).casefold()
+    return "timed out" in message or "timeout" in message
 
 
 def _is_quota_error(error: Exception) -> bool:
