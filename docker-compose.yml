@@ -7,6 +7,19 @@ services:
       - qdrant_storage:/qdrant/storage
     restart: unless-stopped
 
+  # Optional local Ollama for Ollama-first routing.
+  # Start with: docker compose --profile ollama up -d
+  # Then pull models: docker compose exec ollama ollama pull phi3:latest
+  #                   docker compose exec ollama ollama pull qwen2.5:latest
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_storage:/root/.ollama
+    restart: unless-stopped
+
   api:
     build: .
     ports:
@@ -18,6 +31,12 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      # Ollama-first: when the ollama profile is running this resolves to
+      # the compose service; otherwise the router falls back to Gemini/OpenRouter.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434/v1}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-ollama}
+      OLLAMA_PHI_MODEL: ${OLLAMA_PHI_MODEL:-phi3:latest}
+      OLLAMA_QWEN_MODEL: ${OLLAMA_QWEN_MODEL:-qwen2.5:latest}
     depends_on:
       - qdrant
     restart: unless-stopped
@@ -35,3 +54,5 @@ services:
 volumes:
   qdrant_storage:
     name: ${QDRANT_VOLUME_NAME:-qdrant_storage}
+  ollama_storage:
+    name: ${OLLAMA_VOLUME_NAME:-ollama_storage}
