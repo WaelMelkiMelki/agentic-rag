@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from agentic_rag.api.deps import get_agent, get_baseline, get_store
+from agentic_rag.api.deps import get_agent, get_baseline, get_closed_book, get_store
 from agentic_rag.tracing import flush, trace_agent
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class QueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
-    system: str = Field(default="B4", pattern="^(B1|B4)$")
+    system: str = Field(default="B4", pattern="^(B0|B1|B4)$")
 
 
 class QueryResponse(BaseModel):
@@ -42,6 +42,7 @@ async def lifespan(app: FastAPI):
     get_store()
     get_agent()
     get_baseline()
+    get_closed_book()
     logger.info("API ready")
     yield
     flush()
@@ -76,8 +77,15 @@ def query(req: QueryRequest) -> QueryResponse:
             steps = result.get("steps", [])
             status = result.get("status", "unknown")
             stop_reason = result.get("stop_reason", "unknown")
-        else:
+        elif req.system == "B1":
             result = get_baseline().query(req.question)
+            answer = result["answer"]
+            citations = result["citations"]
+            steps = result["steps"]
+            status = result["status"]
+            stop_reason = result["stop_reason"]
+        else:
+            result = get_closed_book().query(req.question)
             answer = result["answer"]
             citations = result["citations"]
             steps = result["steps"]

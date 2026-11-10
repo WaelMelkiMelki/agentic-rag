@@ -23,7 +23,9 @@ API_URL = configured_api_url()
 
 st.set_page_config(page_title="Agentic RAG", page_icon="🔍", layout="wide")
 st.title("🔍 Agentic RAG")
-st.caption("Document question answering · B1 = plain RAG · B4 = full agent")
+st.caption(
+    "Document question answering · B0 = closed-book · B1 = plain RAG · B4 = full agent"
+)
 
 
 @st.cache_data(ttl=30)
@@ -62,7 +64,12 @@ else:
     st.sidebar.error("API unreachable or degraded — check that the API and Qdrant are running.")
     st.stop()
 
-system = st.sidebar.radio("System", ["B4", "B1"], index=0)
+system = st.sidebar.radio(
+    "System",
+    ["B4", "B1", "B0"],
+    index=0,
+    captions=["Full agent", "Plain RAG", "Closed-book (no retrieval)"],
+)
 question = st.chat_input("Ask a question about the corpus...")
 
 if question:

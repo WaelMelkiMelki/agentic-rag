@@ -1,6 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 
-from agentic_rag.agent.state import ClaimCheck
+from agentic_rag.agent.parsing import ClaimsParser
+from agentic_rag.llm.chains import text_chain
 
 GROUND_PROMPT = """You are a fact-checker. Check if each claim in the answer is supported by the provided chunks.
 
@@ -25,31 +26,14 @@ def check_grounding(answer: str, chunks: list, router, grounded_threshold: float
     chunks_text = "\n\n".join(
         f"[{c.payload['chunk_id']}]: {c.payload['text'][:300]}" for c in chunks
     )
+    chain = text_chain(GROUND_CHAT_PROMPT, router)
     try:
-        raw = router.invoke_with_fallback(
-            GROUND_CHAT_PROMPT.format_messages(answer=answer, chunks_text=chunks_text)
-        )
+        raw = chain.invoke({"answer": answer, "chunks_text": chunks_text})
     except Exception:
         return {"is_grounded": False, "claims": [],
                 "feedback": "Grounding check failed: LLM unavailable", "router_calls": 1}
 
-    claims: list[ClaimCheck] = []
-    current = {}
-    for line in raw.strip().splitlines():
-        line = line.strip()
-        if line.startswith("CLAIM:"):
-            if current:
-                claims.append(_complete_claim(current))
-            current = {"claim": line[6:].strip()}
-        elif line.startswith("VERDICT:") and current:
-            verdict = line[8:].strip().lower()
-            current["verdict"] = verdict if verdict in {"supported", "partial", "unsupported"} else "unsupported"
-        elif line.startswith("CHUNKS:") and current:
-            values = line[7:].strip()
-            current["chunk_ids"] = [] if values.lower() == "none" else [v.strip() for v in values.split(",")]
-    if current:
-        claims.append(_complete_claim(current))
-
+    claims = ClaimsParser().parse(raw)
     if not claims:
         return {"is_grounded": False, "claims": [],
                 "feedback": "No claims could be extracted from the answer", "router_calls": 1}
@@ -61,11 +45,3 @@ def check_grounding(answer: str, chunks: list, router, grounded_threshold: float
         f"- '{c['claim']}' ({c['verdict']})\n" for c in bad[:3]
     )
     return {"is_grounded": grounded, "claims": claims, "feedback": feedback, "router_calls": 1}
-
-
-def _complete_claim(claim: dict) -> ClaimCheck:
-    return {
-        "claim": claim.get("claim", ""),
-        "verdict": claim.get("verdict", "unsupported"),
-        "chunk_ids": claim.get("chunk_ids", []),
-    }

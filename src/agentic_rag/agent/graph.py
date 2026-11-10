@@ -1,16 +1,15 @@
 import re
 
 from langgraph.graph import END, START, StateGraph
-from pydantic import ValidationError
 
 from agentic_rag.agent.grade import grade_chunks
 from agentic_rag.agent.ground import check_grounding
-from agentic_rag.agent.plan import PLAN_CHAT_PROMPT, Plan
-from agentic_rag.agent.prompts import GENERATE_CHAT_PROMPT, format_context
+from agentic_rag.agent.parsing import parse_plan
+from agentic_rag.agent.plan import PLAN_CHAT_PROMPT
+from agentic_rag.agent.prompts import ABSTENTION, GENERATE_CHAT_PROMPT, format_context
 from agentic_rag.agent.rewrite import rewrite_query
 from agentic_rag.agent.state import AgentState
-
-ABSTENTION = "I cannot answer this from the provided sources."
+from agentic_rag.llm.chains import text_chain
 
 
 def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: int = 10,
@@ -21,6 +20,10 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
     """
     if top_k < 1 or max_router_calls < 1 or max_rounds < 0:
         raise ValueError("top_k and max_router_calls must be positive; max_rounds cannot be negative")
+
+    # LCEL chains: prompt -> fallback router -> text. Built once per agent.
+    plan_chain = text_chain(PLAN_CHAT_PROMPT, router)
+    generate_chain = text_chain(GENERATE_CHAT_PROMPT, router)
 
     def initialize(state: AgentState) -> dict:
         """Fill graph bookkeeping defaults so callers only need to pass a question."""
@@ -34,17 +37,15 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
             return {"route": "abstain", "stop_reason": "budget_exhausted",
                     "steps": ["Planner skipped: budget exhausted"]}
         try:
-            raw = router.invoke_with_fallback(
-                PLAN_CHAT_PROMPT.format_messages(question=state["question"])
-            )
+            raw = plan_chain.invoke({"question": state["question"]})
         except Exception:
             return {"route": "abstain", "router_calls": state["router_calls"] + 1,
                     "stop_reason": "llm_unavailable", "steps": ["Planner failed: LLM unavailable"]}
-        try:
-            parsed = Plan.model_validate_json(raw.strip())
+        parsed = parse_plan(raw)
+        if parsed is not None:
             route, query = parsed.action, parsed.query.strip() or state["question"]
             step = f"Plan: {route}"
-        except ValidationError:
+        else:
             route, query, step = "retrieve", state["question"], "Plan invalid; searching original question"
         return {"route": route, "search_query": query, "router_calls": state["router_calls"] + 1,
                 "round": 0, "steps": [step]}
@@ -77,11 +78,10 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
         chunks = state.get("relevant_chunks", [])
         if not chunks:
             return {"draft_answer": "", "steps": ["No relevant chunks for generation"]}
-        messages = GENERATE_CHAT_PROMPT.format_messages(
-            context=format_context(chunks), question=state["question"]
-        )
         try:
-            draft = router.invoke_with_fallback(messages).strip()
+            draft = generate_chain.invoke(
+                {"context": format_context(chunks), "question": state["question"]}
+            ).strip()
         except Exception:
             return {"draft_answer": "", "router_calls": state["router_calls"] + 1,
                     "stop_reason": "llm_unavailable", "steps": ["Generation failed"]}
