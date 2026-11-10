@@ -25,7 +25,11 @@ jobs:
 
       - name: Install dependencies
         # The `ui` extra is needed so tests/integration/test_ui.py runs instead of skipping.
-        run: uv sync --locked --extra ui
+        #
+        # Not using `--locked`: `uv.lock` is refreshed on a laptop (`uv lock`) and CI must
+        # not fail just because the lock lags behind `pyproject.toml`. `uv sync` resolves
+        # from the lock and only updates it when a requirement is missing.
+        run: uv sync --extra ui
 
       - name: Run the offline test suite
         # `-m "not integration"` excludes the live prompt-injection tests, which need

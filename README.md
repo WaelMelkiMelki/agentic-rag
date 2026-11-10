@@ -274,6 +274,13 @@ pytest -m integration tests/integration/test_injection.py -v   # live LLM inject
 GitHub Actions runs the offline suite (plus a no-credentials import check) on every
 push and pull request: [`.github/workflows/tests.yml`](.github/workflows/tests.yml).
 
+After changing dependencies in `pyproject.toml`, refresh the lockfile so local and
+CI installs match:
+
+```bash
+uv lock && git add uv.lock
+```
+
 Offline tests inject fake LLMs and fake API dependencies. The injection suite makes
 real LLM calls, is marked `integration`, and skips itself when no credentials or no
 reachable Qdrant collection is present.
