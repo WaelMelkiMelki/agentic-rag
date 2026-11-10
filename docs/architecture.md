@@ -12,7 +12,8 @@
 | Agent (B4) | `src/agentic_rag/agent/graph.py` | LangGraph state machine with self-correction |
 | Prompts | `src/agentic_rag/agent/{prompts,plan,grade,ground,rewrite}.py` | `ChatPromptTemplate` objects (`GENERATE_CHAT_PROMPT` etc.), rendered text identical to the original prompt strings; `GENERATE_CHAT_PROMPT` is shared by B1 and B4 |
 | Retrieval | `src/agentic_rag/retrieval/` | FastEmbed (ONNX) embedder, Qdrant vector store, and `ChunkRetriever` (LangChain `BaseRetriever` → `Document`s) |
-| Ingestion | `src/agentic_rag/ingestion/` | PDF download → parse → chunk → embed → upsert |
+| Ingestion | `src/agentic_rag/ingestion/` | PDF download → PyMuPDF4LLM parse → `RecursiveCharacterTextSplitter` chunking → embed → upsert |
+| Memory | `src/agentic_rag/agent/memory.py` | Bounded per-session `BaseChatMessageHistory` + follow-up condensing (`session_id`) |
 | Parsing | `src/agentic_rag/agent/parsing.py` | LangChain output parsers: planner JSON, yes/no verdict, claim report |
 | Chains | `src/agentic_rag/llm/chains.py` | LCEL `prompt \| router \| StrOutputParser()` used by every node |
 | LLM routing | `src/agentic_rag/llm/router.py` | 4-tier fallback with per-process failure caching |
@@ -37,7 +38,10 @@
    `ClaimsParser` for the claim-by-claim grounding report.
 5. The final state exposes `final_answer`, `citations`, `steps`, `status`
    (`answered` | `answered_unverified` | `abstained`) and `stop_reason`.
-8. `trace_agent()` records the invocation in Langfuse when credentials are set, and
+8. When the request carries a `session_id`, the follow-up is first rewritten into a
+   standalone question using the last turns (`agent/memory.py`), then the result is
+   appended to that session's history (6 turns, LRU-bounded, in process memory).
+9. `trace_agent()` records the invocation in Langfuse when credentials are set, and
    the LangChain callback handler streams the individual steps as spans.
 
 ## LLM routing

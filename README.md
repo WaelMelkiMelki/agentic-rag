@@ -74,8 +74,21 @@ curl -s -X POST https://agentic-rag-1jii.onrender.com/query \
 }
 ```
 
-`system` is `"B0"` (closed-book), `"B1"` (plain RAG) or `"B4"` (agent). Two
-machine-readable fields make the behaviour auditable instead of prose:
+`system` is `"B0"` (closed-book), `"B1"` (plain RAG) or `"B4"` (agent).
+
+Send an optional `session_id` to get multi-turn behaviour — follow-ups such as
+"and the second one?" are rewritten into a standalone question with the last few
+turns as context, and the rewritten question is returned in `standalone_question`:
+
+```bash
+curl -s -X POST http://localhost:8000/query -H "Content-Type: application/json" \
+  -d '{"question": "and how does it scale?", "system": "B4", "session_id": "chat-1"}'
+```
+
+Sessions are kept in process memory (bounded LRU, 6 turns each), so they reset on
+restart and are not shared between instances.
+
+Two machine-readable fields make the behaviour auditable instead of prose:
 
 | `status` | Meaning |
 |---|---|
@@ -198,7 +211,7 @@ so the next query retries Ollama instead of silently going cloud-only.
 * **Observability:** Langfuse — per-query `trace_agent()` plus the LangChain
   `CallbackHandler` bound to every chain (span per step), optional at runtime
 * **LLM SDKs:** `langchain-openai`, `langchain-google-genai`
-* **Ingestion:** PyMuPDF4LLM → chunking → embed → upsert
+* **Ingestion:** PyMuPDF4LLM → `RecursiveCharacterTextSplitter` → embed → upsert
 * **Deployment:** Docker → Render (API), Streamlit Community Cloud (UI), GitHub Actions keep-alive
 * **Testing:** pytest with fake LLM/router injection; live injection suite behind `-m integration`
 
@@ -240,6 +253,8 @@ ollama pull qwen2.5:latest
 docker compose up -d qdrant
 uv run python -m agentic_rag.ingestion.ingest_all
 
+# Chunking uses RecursiveCharacterTextSplitter (500 words, 80 overlap), so
+# re-running ingestion rewrites chunk boundaries and supersedes older points.
 uv run uvicorn agentic_rag.api.main:app --reload   # http://localhost:8000/docs
 uv run --extra ui streamlit run ui/app.py          # http://localhost:8501
 ```
