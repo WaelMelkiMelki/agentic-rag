@@ -11,12 +11,12 @@
 | Baseline (B1) | `src/agentic_rag/agent/rag.py` | Retrieve → generate, no self-correction |
 | Agent (B4) | `src/agentic_rag/agent/graph.py` | LangGraph state machine with self-correction |
 | Prompts | `src/agentic_rag/agent/{prompts,plan,grade,ground,rewrite}.py` | `ChatPromptTemplate` objects (`GENERATE_CHAT_PROMPT` etc.), rendered text identical to the original prompt strings; `GENERATE_CHAT_PROMPT` is shared by B1 and B4 |
-| Retrieval | `src/agentic_rag/retrieval/` | FastEmbed (ONNX) embedder + Qdrant vector store |
+| Retrieval | `src/agentic_rag/retrieval/` | FastEmbed (ONNX) embedder, Qdrant vector store, and `ChunkRetriever` (LangChain `BaseRetriever` → `Document`s) |
 | Ingestion | `src/agentic_rag/ingestion/` | PDF download → parse → chunk → embed → upsert |
 | Parsing | `src/agentic_rag/agent/parsing.py` | LangChain output parsers: planner JSON, yes/no verdict, claim report |
 | Chains | `src/agentic_rag/llm/chains.py` | LCEL `prompt \| router \| StrOutputParser()` used by every node |
 | LLM routing | `src/agentic_rag/llm/router.py` | 4-tier fallback with per-process failure caching |
-| Observability | `src/agentic_rag/tracing.py` | Optional Langfuse trace per query, fail-safe |
+| Observability | `src/agentic_rag/tracing.py` | Optional Langfuse: one trace per query (`trace_agent`) plus the LangChain `CallbackHandler` bound to every chain, fail-safe |
 | Evals | `evals/` | Retrieval metrics (Hit@k, MRR), LLM judge, ablation harness |
 
 ## Request flow (B4)
@@ -29,12 +29,16 @@
 4. Every LLM call (`plan`, `grade`, `generate`, `ground`, `rewrite`) is an LCEL chain:
    `ChatPromptTemplate | LLMRouter.invoke_with_fallback | StrOutputParser()`. The router
    accepts a string, chat messages, or a `ChatPromptValue` and always returns text.
-5. Structured replies are read by LangChain output parsers (`agent/parsing.py`):
+5. Retrieval goes through `ChunkRetriever.invoke(query)` (LangChain `BaseRetriever`),
+   so it participates in callbacks and returns `Document`s; the graph converts them
+   back to lightweight chunks that keep `chunk_id` for citations.
+6. Structured replies are read by LangChain output parsers (`agent/parsing.py`):
    `PydanticOutputParser` for the planner (fence-tolerant), `VerdictParser` for grading,
    `ClaimsParser` for the claim-by-claim grounding report.
 5. The final state exposes `final_answer`, `citations`, `steps`, `status`
    (`answered` | `answered_unverified` | `abstained`) and `stop_reason`.
-7. `trace_agent()` records the invocation in Langfuse when credentials are set.
+8. `trace_agent()` records the invocation in Langfuse when credentials are set, and
+   the LangChain callback handler streams the individual steps as spans.
 
 ## LLM routing
 
@@ -69,6 +73,8 @@ Ollama-only setup (local laptop, no cloud keys) still starts.
 * **UI:** Streamlit Community Cloud, pointing at the Render API through `API_URL`.
 * **Vector DB:** Qdrant Cloud (eu-west-1).
 * **Observability:** Langfuse Cloud, enabled by `LANGFUSE_*` env vars.
+* **CI:** `.github/workflows/tests.yml` runs `pytest -q -m "not integration"`, a
+  whitespace check, and a no-credentials import smoke test.
 * **Keep-alive:** `.github/workflows/keepalive.yml` pings Qdrant and Render weekly.
 
 ## Testing strategy

@@ -1,5 +1,7 @@
 # Agentic RAG
 
+[![tests](https://github.com/WaelMelkiMelki/agentic-rag/actions/workflows/tests.yml/badge.svg)](https://github.com/WaelMelkiMelki/agentic-rag/actions/workflows/tests.yml)
+
 A self-correcting document QA agent that retrieves, generates, and **verifies its own
 answers** against source documents — built on three arXiv ML papers.
 
@@ -47,7 +49,8 @@ stopped early on Gemini's daily free-tier quota, so the three recorded judge sco
 baselines are implemented; fill the table with:
 
 ```bash
-uv run python -m evals.run_ablation
+uv run python -m evals.run_ablation              # B0 / B1 / B4 summary
+uv run python -m evals.run_ablation --markdown   # same numbers as a paste-ready table
 ```
 
 ## 🔌 API
@@ -192,7 +195,8 @@ so the next query retries Ollama instead of silently going cloud-only.
 * **Vector DB:** Qdrant Cloud (free tier, cosine distance)
 * **API:** FastAPI + Uvicorn, Pydantic v2 request/response models
 * **UI:** Streamlit
-* **Observability:** Langfuse (per-query traces, optional at runtime)
+* **Observability:** Langfuse — per-query `trace_agent()` plus the LangChain
+  `CallbackHandler` bound to every chain (span per step), optional at runtime
 * **LLM SDKs:** `langchain-openai`, `langchain-google-genai`
 * **Ingestion:** PyMuPDF4LLM → chunking → embed → upsert
 * **Deployment:** Docker → Render (API), Streamlit Community Cloud (UI), GitHub Actions keep-alive
@@ -209,7 +213,7 @@ agentic-rag/
 │   │   ├── closed_book.py # ClosedBook baseline (B0, no retrieval)
 │   │   └── rag.py      # SimpleRAG baseline (B1)
 │   ├── llm/            # LLMRouter (phi3 → qwen2.5 → Gemini → OpenRouter), LCEL chains, tracker
-│   ├── retrieval/      # FastEmbed embedder + Qdrant vector store
+│   ├── retrieval/      # FastEmbed embedder, Qdrant store, LangChain retriever
 │   ├── ingestion/      # PDF download → parse → chunk → embed pipeline
 │   ├── api/            # FastAPI app + singleton deps
 │   └── tracing.py      # Optional Langfuse tracing (fail-safe, version-tolerant)
@@ -266,6 +270,9 @@ Set `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, `QDRANT_URL`,
 pytest -q                                   # offline suite, no keys needed
 pytest -m integration tests/integration/test_injection.py -v   # live LLM injection tests
 ```
+
+GitHub Actions runs the offline suite (plus a no-credentials import check) on every
+push and pull request: [`.github/workflows/tests.yml`](.github/workflows/tests.yml).
 
 Offline tests inject fake LLMs and fake API dependencies. The injection suite makes
 real LLM calls, is marked `integration`, and skips itself when no credentials or no
