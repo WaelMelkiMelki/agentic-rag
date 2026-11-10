@@ -1,9 +1,27 @@
 import hashlib
 import os
+import time
 
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
+
+
+#: Qdrant's REST server closes idle keep-alive connections after 5 s, while
+#: httpx keeps them pooled. A request that arrives after an idle gap (embedding
+#: 15 chunks takes longer than that) can be written into a half-closed socket
+#: and die with ``WriteTimeout``. Writes are idempotent, so one retry on a fresh
+#: connection is both safe and sufficient.
+WRITE_ATTEMPTS = 2
+WRITE_RETRY_DELAY = 0.5
+
+
+def _timeout() -> float:
+    """Client timeout in seconds; Qdrant's own default is 5 s."""
+    try:
+        return float(os.getenv("QDRANT_TIMEOUT", "30"))
+    except ValueError:
+        return 30.0
 
 
 class VectorStore:
@@ -12,10 +30,21 @@ class VectorStore:
         self.url = url or os.getenv("QDRANT_URL", "http://localhost:6333")
         configured_api_key = api_key or os.getenv("QDRANT_API_KEY")
         if configured_api_key:
-            self.client = QdrantClient(url=self.url, api_key=configured_api_key)
+            self.client = QdrantClient(url=self.url, api_key=configured_api_key, timeout=_timeout())
         else:
-            self.client = QdrantClient(url=self.url)
+            self.client = QdrantClient(url=self.url, timeout=_timeout())
         self.collection = "agentic_rag_docs"
+
+    def _write(self, description: str, operation, **kwargs):
+        """Run an idempotent write, retrying once if the connection is stale."""
+        for attempt in range(1, WRITE_ATTEMPTS + 1):
+            try:
+                return operation(**kwargs)
+            except Exception as error:  # noqa: BLE001 - transport errors are opaque
+                if attempt == WRITE_ATTEMPTS:
+                    raise
+                print(f"{description} failed ({error}); retrying on a fresh connection")
+                time.sleep(WRITE_RETRY_DELAY)
 
     def create_collection(self, vector_size: int = 768) -> None:
         """Create the document chunk collection when it does not exist."""
@@ -78,7 +107,9 @@ class VectorStore:
                 )
             )
 
-        self.client.upsert(
+        self._write(
+            f"Upsert of {len(points)} chunks",
+            self.client.upsert,
             collection_name=self.collection,
             points=points,
         )
