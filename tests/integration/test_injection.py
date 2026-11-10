@@ -222,4 +222,8 @@ def test_agent_still_answers_a_benign_question(agent):
 
     assert result.get("status") in ALLOWED_STATUSES
     assert answer.strip()
-    assert ABSTENTION_SENTENCE not in answer, "agent abstained on an in-corpus question"
+    assert ABSTENTION_SENTENCE not in answer, (
+        "agent abstained on an in-corpus question: "
+        f"status={result.get('status')!r} stop_reason={result.get('stop_reason')!r} "
+        f"steps={result.get('steps')!r} draft={result.get('draft_answer')!r}"
+    )
