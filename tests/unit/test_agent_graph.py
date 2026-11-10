@@ -159,3 +159,36 @@ def test_uncited_and_ungrounded_answer_still_abstains():
     assert result["citations"] == []
     # The draft is preserved so the caller can see what was rejected.
     assert result["draft_answer"] == "It attends to different subspaces."
+
+
+def test_uncited_ungrounded_answer_is_rescued_by_a_citation_request():
+    """The probe case: a correct draft, no markers, and a fact-checker that timed out."""
+    replies = [
+        '{"action": "retrieve", "query": "multi-head attention"}',
+        "yes",
+        "The Transformer uses multi-head attention to build residual streams.",
+        UNGROUNDED,
+        "paper__0",
+    ]
+    result = run_agent(replies, [make_chunk_at(0)], max_rounds=0)
+
+    assert result["status"] == "answered"
+    assert result["stop_reason"] == "grounded"
+    assert result["citations"] == ["paper__0"]
+    assert result["final_answer"].endswith("[paper__0]")
+    assert any("citation request" in step for step in result["steps"])
+
+
+def test_citation_request_that_returns_nothing_still_abstains():
+    replies = [
+        '{"action": "retrieve", "query": "multi-head attention"}',
+        "yes",
+        "An answer with no evidence trail.",
+        UNGROUNDED,
+        "none",
+    ]
+    result = run_agent(replies, [make_chunk_at(0)], max_rounds=0)
+
+    assert result["status"] == "abstained"
+    assert result["stop_reason"] == "invalid_citations"
+    assert result["citations"] == []

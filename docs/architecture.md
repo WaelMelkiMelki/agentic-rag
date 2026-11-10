@@ -39,8 +39,11 @@
 7. `finalize` enforces the evidence trail: `[chunk_id]` markers are matched against the
    chunks retrieved for *this* question, unmatched ones are stripped from the text, and
    a draft with no valid marker borrows the fact-checker's attribution when the grounding
-   check passed. Anything else abstains with `invalid_citations` — and the rejected draft
-   stays visible in the response (`draft_answer`) instead of being discarded.
+   check passed. If the fact-checker did not run (timeout), one ids-only call
+   (`agent/cite.py`) asks the model which chunks support the draft; its answer is
+   intersected with the retrieved set, so an invented id cannot pass. Anything else
+   abstains with `invalid_citations` — and the rejected draft stays visible in the
+   response (`draft_answer`) instead of being discarded.
 8. The final state exposes `final_answer`, `citations`, `steps`, `status`
    (`answered` | `answered_unverified` | `abstained`) and `stop_reason`.
 9. When the request carries a `session_id`, the follow-up is first rewritten into a

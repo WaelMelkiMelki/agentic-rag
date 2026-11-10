@@ -108,7 +108,8 @@ A benign control question checks that hardening did not break normal answering.
 - `finalize` treats citations as the evidence trail: each `[chunk_id]` marker must match
   a chunk retrieved for that question, unmatched markers are stripped from the answer,
   and a draft with no verified citation abstains with `invalid_citations` unless the
-  passing grounding report supplies the attribution. The rejected draft is returned in
+  passing grounding report supplies the attribution, or an ids-only citation request
+  does when the fact-checker timed out. The rejected draft is returned in
   `draft_answer` so a refusal can be audited instead of guessed at.
 - Status and grounding booleans are computed in Python (`is_grounded`, claim verdicts),
   never taken from free-form model output.
