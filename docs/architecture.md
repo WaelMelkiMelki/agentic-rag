@@ -9,7 +9,7 @@
 | Wiring | `src/agentic_rag/api/deps.py` | Singletons: router, embedder, store, agent, baseline |
 | Baseline (B1) | `src/agentic_rag/agent/rag.py` | Retrieve → generate, no self-correction |
 | Agent (B4) | `src/agentic_rag/agent/graph.py` | LangGraph state machine with self-correction |
-| Prompts | `src/agentic_rag/agent/prompts.py` | `GENERATE_PROMPT`, shared by B1 and B4 |
+| Prompts | `src/agentic_rag/agent/{prompts,plan,grade,ground,rewrite}.py` | `ChatPromptTemplate` objects (`GENERATE_CHAT_PROMPT` etc.), rendered text identical to the original prompt strings; `GENERATE_CHAT_PROMPT` is shared by B1 and B4 |
 | Retrieval | `src/agentic_rag/retrieval/` | FastEmbed (ONNX) embedder + Qdrant vector store |
 | Ingestion | `src/agentic_rag/ingestion/` | PDF download → parse → chunk → embed → upsert |
 | LLM routing | `src/agentic_rag/llm/router.py` | 4-tier fallback with per-process failure caching |
@@ -23,8 +23,9 @@
 3. The graph runs: `initialize → plan → retrieve → grade → (generate → ground) → finalize`,
    with `rewrite → retrieve` loops bounded by `max_rounds=2` and a
    `max_router_calls=10` budget. Out-of-budget or unrecoverable states route to `abstain`.
-4. Every LLM call (`plan`, `grade`, `generate`, `ground`, `rewrite`) goes through
-   `LLMRouter.invoke_with_fallback()`.
+4. Every LLM call (`plan`, `grade`, `generate`, `ground`, `rewrite`) is rendered by a
+   `ChatPromptTemplate` into chat messages and sent through
+   `LLMRouter.invoke_with_fallback()`, which accepts either a string or messages.
 5. The final state exposes `final_answer`, `citations`, `steps`, `status`
    (`answered` | `answered_unverified` | `abstained`) and `stop_reason`.
 6. `trace_agent()` records the invocation in Langfuse when credentials are set.

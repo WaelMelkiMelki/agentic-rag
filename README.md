@@ -174,6 +174,9 @@ so the next query retries Ollama instead of silently going cloud-only.
 * **LLM routing:** 4-tier fallback — Ollama `phi3:latest`, Ollama `qwen2.5:latest`,
   Gemini `gemini-3.8-flash`, OpenRouter `openrouter/free`
 * **Agent framework:** LangGraph (typed `AgentState`, conditional edges, retry loops)
+* **Prompting:** `ChatPromptTemplate` (`langchain-core`) — `GENERATE_CHAT_PROMPT` is shared
+  by B1 and B4, and its rendered text is byte-identical to the original prompt string
+  (asserted in `tests/unit/test_prompts.py`), so the ablation stays fair
 * **Embeddings:** FastEmbed ONNX — `sentence-transformers/all-MiniLM-L6-v2`, 384-dim
 * **Vector DB:** Qdrant Cloud (free tier, cosine distance)
 * **API:** FastAPI + Uvicorn, Pydantic v2 request/response models
@@ -190,7 +193,7 @@ so the next query retries Ollama instead of silently going cloud-only.
 agentic-rag/
 ├── src/agentic_rag/
 │   ├── agent/          # LangGraph agent (initialize → plan → retrieve → grade → generate → ground → finalize)
-│   │   ├── prompts.py  # GENERATE_PROMPT shared by B1 and B4
+│   │   ├── prompts.py  # GENERATE_CHAT_PROMPT (ChatPromptTemplate) shared by B1 and B4
 │   │   └── rag.py      # SimpleRAG baseline (B1)
 │   ├── llm/            # LLMRouter (phi3 → qwen2.5 → Gemini → OpenRouter) + usage tracker
 │   ├── retrieval/      # FastEmbed embedder + Qdrant vector store

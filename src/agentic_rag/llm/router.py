@@ -1,10 +1,17 @@
 import os
+from collections.abc import Sequence
 
 from dotenv import load_dotenv
+from langchain_core.messages import BaseMessage
+from langchain_core.prompt_values import PromptValue
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 load_dotenv()
+
+# Prompts arrive either as plain text or as LangChain chat messages
+# (``ChatPromptTemplate.format_messages(...)``), so both are accepted.
+PromptInput = str | Sequence[BaseMessage] | PromptValue
 
 
 class LLMRouter:
@@ -131,8 +138,13 @@ class LLMRouter:
             return self.openrouter
         raise ValueError(f"Unknown provider: {provider}")
 
-    def invoke_with_fallback(self, prompt: str) -> str:
-        """Use Ollama phi3, then Ollama qwen2.5, then Gemini, then OpenRouter."""
+    def invoke_with_fallback(self, prompt: PromptInput) -> str:
+        """Use Ollama phi3, then Ollama qwen2.5, then Gemini, then OpenRouter.
+
+        ``prompt`` may be a string or a list of chat messages produced by a
+        :class:`~langchain_core.prompts.ChatPromptTemplate`; every provider
+        accepts both. The return value is always the answer text.
+        """
         # Snapshot so a phi failure in this call still allows qwen to be
         # tried once; subsequent calls skip Ollama entirely.
         ollama_was_unavailable = self._ollama_unavailable

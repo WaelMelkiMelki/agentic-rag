@@ -1,3 +1,5 @@
+from langchain_core.prompts import ChatPromptTemplate
+
 from agentic_rag.agent.state import ClaimCheck
 
 GROUND_PROMPT = """You are a fact-checker. Check if each claim in the answer is supported by the provided chunks.
@@ -16,6 +18,8 @@ CHUNKS: <comma-separated chunk_ids, or none>
 supported means clearly stated; partial means hinted at but not confirmed; unsupported means absent.
 """
 
+GROUND_CHAT_PROMPT = ChatPromptTemplate.from_template(GROUND_PROMPT)
+
 
 def check_grounding(answer: str, chunks: list, router, grounded_threshold: float = 0.75) -> dict:
     chunks_text = "\n\n".join(
@@ -23,7 +27,7 @@ def check_grounding(answer: str, chunks: list, router, grounded_threshold: float
     )
     try:
         raw = router.invoke_with_fallback(
-            GROUND_PROMPT.format(answer=answer, chunks_text=chunks_text)
+            GROUND_CHAT_PROMPT.format_messages(answer=answer, chunks_text=chunks_text)
         )
     except Exception:
         return {"is_grounded": False, "claims": [],

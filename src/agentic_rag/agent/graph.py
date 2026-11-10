@@ -5,8 +5,8 @@ from pydantic import ValidationError
 
 from agentic_rag.agent.grade import grade_chunks
 from agentic_rag.agent.ground import check_grounding
-from agentic_rag.agent.plan import PLAN_PROMPT, Plan
-from agentic_rag.agent.prompts import GENERATE_PROMPT, format_context
+from agentic_rag.agent.plan import PLAN_CHAT_PROMPT, Plan
+from agentic_rag.agent.prompts import GENERATE_CHAT_PROMPT, format_context
 from agentic_rag.agent.rewrite import rewrite_query
 from agentic_rag.agent.state import AgentState
 
@@ -34,7 +34,9 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
             return {"route": "abstain", "stop_reason": "budget_exhausted",
                     "steps": ["Planner skipped: budget exhausted"]}
         try:
-            raw = router.invoke_with_fallback(PLAN_PROMPT.format(question=state["question"]))
+            raw = router.invoke_with_fallback(
+                PLAN_CHAT_PROMPT.format_messages(question=state["question"])
+            )
         except Exception:
             return {"route": "abstain", "router_calls": state["router_calls"] + 1,
                     "stop_reason": "llm_unavailable", "steps": ["Planner failed: LLM unavailable"]}
@@ -75,9 +77,11 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
         chunks = state.get("relevant_chunks", [])
         if not chunks:
             return {"draft_answer": "", "steps": ["No relevant chunks for generation"]}
-        prompt = GENERATE_PROMPT.format(context=format_context(chunks), question=state["question"])
+        messages = GENERATE_CHAT_PROMPT.format_messages(
+            context=format_context(chunks), question=state["question"]
+        )
         try:
-            draft = router.invoke_with_fallback(prompt).strip()
+            draft = router.invoke_with_fallback(messages).strip()
         except Exception:
             return {"draft_answer": "", "router_calls": state["router_calls"] + 1,
                     "stop_reason": "llm_unavailable", "steps": ["Generation failed"]}
