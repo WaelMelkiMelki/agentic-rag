@@ -85,8 +85,9 @@ curl -s -X POST http://localhost:8000/query -H "Content-Type: application/json" 
   -d '{"question": "and how does it scale?", "system": "B4", "session_id": "chat-1"}'
 ```
 
-Sessions are kept in process memory (bounded LRU, 6 turns each), so they reset on
-restart and are not shared between instances.
+The Streamlit UI already sends a session id per browser session and offers a
+**New chat** button. Sessions are kept in process memory (bounded LRU, 6 turns
+each), so they reset on restart and are not shared between instances.
 
 Two machine-readable fields make the behaviour auditable instead of prose:
 

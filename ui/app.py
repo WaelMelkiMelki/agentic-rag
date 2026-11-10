@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from uuid import uuid4
 
 import requests
 import streamlit as st
@@ -70,6 +71,13 @@ system = st.sidebar.radio(
     index=0,
     captions=["Full agent", "Plain RAG", "Closed-book (no retrieval)"],
 )
+# One session id per browser session gives the API follow-up memory.
+if "session_id" not in st.session_state:
+    st.session_state.session_id = uuid4().hex
+if st.sidebar.button("New chat"):
+    st.session_state.session_id = uuid4().hex
+    st.rerun()
+
 question = st.chat_input("Ask a question about the corpus...")
 
 if question:
@@ -80,7 +88,11 @@ if question:
         try:
             response = requests.post(
                 f"{API_URL}/query",
-                json={"question": question, "system": system},
+                json={
+                    "question": question,
+                    "system": system,
+                    "session_id": st.session_state.session_id,
+                },
                 timeout=180,
             )
             response.raise_for_status()
@@ -99,6 +111,9 @@ if question:
                     st.code(citation)
             else:
                 st.write("None")
+
+        if data.get("standalone_question") and data["standalone_question"] != question:
+            st.caption(f"🔗 Interpreted as: {data['standalone_question']}")
 
         with st.expander("🧠 Agent Steps"):
             for index, step in enumerate(data["steps"], 1):
