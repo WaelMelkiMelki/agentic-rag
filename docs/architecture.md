@@ -36,12 +36,17 @@
 6. Structured replies are read by LangChain output parsers (`agent/parsing.py`):
    `PydanticOutputParser` for the planner (fence-tolerant), `VerdictParser` for grading,
    `ClaimsParser` for the claim-by-claim grounding report.
-5. The final state exposes `final_answer`, `citations`, `steps`, `status`
+7. `finalize` enforces the evidence trail: `[chunk_id]` markers are matched against the
+   chunks retrieved for *this* question, unmatched ones are stripped from the text, and
+   a draft with no valid marker borrows the fact-checker's attribution when the grounding
+   check passed. Anything else abstains with `invalid_citations` — and the rejected draft
+   stays visible in the response (`draft_answer`) instead of being discarded.
+8. The final state exposes `final_answer`, `citations`, `steps`, `status`
    (`answered` | `answered_unverified` | `abstained`) and `stop_reason`.
-8. When the request carries a `session_id`, the follow-up is first rewritten into a
+9. When the request carries a `session_id`, the follow-up is first rewritten into a
    standalone question using the last turns (`agent/memory.py`), then the result is
    appended to that session's history (6 turns, LRU-bounded, in process memory).
-9. `trace_agent()` records the invocation in Langfuse when credentials are set, and
+10. `trace_agent()` records the invocation in Langfuse when credentials are set, and
    the LangChain callback handler streams the individual steps as spans.
 
 ## LLM routing

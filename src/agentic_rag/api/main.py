@@ -42,6 +42,9 @@ class QueryResponse(BaseModel):
     # The question actually retrieved against (equal to `question` when no
     # session history was used).
     standalone_question: str = ""
+    # B4 only: the pre-validation draft. Kept so a rejected answer can be
+    # diagnosed (citation failures used to be invisible to the caller).
+    draft_answer: str = ""
 
 
 class HealthResponse(BaseModel):
@@ -64,6 +67,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Agentic RAG API", version="0.1.0", lifespan=lifespan)
+
+
+@app.get("/", include_in_schema=False)
+def index() -> dict:
+    """Endpoint index, so a bare `GET /` is not a confusing 404."""
+    return {
+        "name": "Agentic RAG API",
+        "version": app.version,
+        "docs": "/docs",
+        "health": "/health",
+        "query": "POST /query",
+    }
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -97,6 +112,7 @@ def query(req: QueryRequest) -> QueryResponse:
             steps = result.get("steps", [])
             status = result.get("status", "unknown")
             stop_reason = result.get("stop_reason", "unknown")
+            draft_answer = result.get("draft_answer", "")
         elif req.system == "B1":
             result = get_baseline().query(question)
             answer = result["answer"]
@@ -104,6 +120,7 @@ def query(req: QueryRequest) -> QueryResponse:
             steps = result["steps"]
             status = result["status"]
             stop_reason = result["stop_reason"]
+            draft_answer = ""
         else:
             result = get_closed_book().query(question)
             answer = result["answer"]
@@ -111,6 +128,7 @@ def query(req: QueryRequest) -> QueryResponse:
             steps = result["steps"]
             status = result["status"]
             stop_reason = result["stop_reason"]
+            draft_answer = ""
 
         if req.session_id:
             get_sessions().remember(req.session_id, req.question, answer)
@@ -138,6 +156,7 @@ def query(req: QueryRequest) -> QueryResponse:
             system=req.system,
             latency_s=round(time.perf_counter() - started, 2),
             standalone_question=question,
+            draft_answer=draft_answer if req.system == "B4" else "",
         )
     except Exception as error:
         logger.exception("Query failed")

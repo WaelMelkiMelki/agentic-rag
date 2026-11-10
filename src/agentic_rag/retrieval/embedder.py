@@ -2,7 +2,13 @@ import hashlib
 import json
 from pathlib import Path
 
-from sentence_transformers import SentenceTransformer
+try:  # optional 'ingestion' extra; the API uses FastEmbed instead
+    from sentence_transformers import SentenceTransformer
+except ImportError:  # pragma: no cover - depends on the installed extras
+    SentenceTransformer = None
+
+#: Model served by both backends, so cached vectors stay interchangeable.
+DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 class CachedEmbedder:
@@ -10,15 +16,36 @@ class CachedEmbedder:
     def __init__(
         self,
         cache_dir: str = "data/cache",
-        model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+        model_name: str = DEFAULT_MODEL,
     ):
         self.model_name = model_name
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._delegate = False
+        if SentenceTransformer is None:
+            if model_name != DEFAULT_MODEL:
+                raise RuntimeError(
+                    "sentence-transformers is not installed; install the 'ingestion' "
+                    f"extra to use the '{model_name}' embedding model"
+                )
+            # FastEmbed is a core dependency (it is what the API serves with) and
+            # runs the same MiniLM model through ONNX, so evals and ingestion
+            # still work after a plain `uv sync`. Only the JSON cache is lost.
+            from agentic_rag.retrieval.fast_embedder import FastEmbedder
+
+            print(
+                "sentence-transformers is not installed (the 'ingestion' extra); "
+                "falling back to FastEmbed/ONNX with the same MiniLM model. "
+                "Run `uv sync --extra ingestion` for the cached torch embedder."
+            )
+            self.model = FastEmbedder(cache_dir=str(self.cache_dir / "fastembed"))
+            self.embedding_dimension = self.model.embedding_dimension
+            self._delegate = True
+            return
         self.model = SentenceTransformer(model_name)
         self.embedding_dimension = self.model.get_embedding_dimension()
         if self.embedding_dimension is None:
             raise RuntimeError("Embedding model did not provide its vector dimension")
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _cache_key(self, text: str) -> str:
         """Create a unique filename from the text content."""
@@ -27,6 +54,8 @@ class CachedEmbedder:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed texts, reusing vectors saved in the disk cache."""
+        if self._delegate:
+            return self.model.embed(texts)
         results: list[list[float] | None] = [None] * len(texts)
         uncached_texts: list[str] = []
         uncached_indices: list[int] = []
@@ -70,6 +99,8 @@ class CachedEmbedder:
 
     def embed_query(self, query: str) -> list[float]:
         """Embed a single search query."""
+        if self._delegate:
+            return self.model.embed_query(query)
         return self.model.encode(
             query,
             normalize_embeddings=True,

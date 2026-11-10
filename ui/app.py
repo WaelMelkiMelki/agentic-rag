@@ -119,6 +119,11 @@ if question:
             for index, step in enumerate(data["steps"], 1):
                 st.write(f"{index}. {step}")
 
+        if data.get("draft_answer") and data["status"] == "abstained":
+            with st.expander("🔍 Rejected draft (pre-validation)"):
+                st.write(data["draft_answer"])
+                st.caption(f"Rejected before validation — stop reason: {data['stop_reason']}")
+
         col1, col2, col3 = st.columns(3)
         col1.metric("Status", data["status"])
         col2.metric("Stop reason", data["stop_reason"])

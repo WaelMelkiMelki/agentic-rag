@@ -53,6 +53,16 @@ uv run python -m evals.run_ablation              # B0 / B1 / B4 summary
 uv run python -m evals.run_ablation --markdown   # same numbers as a paste-ready table
 ```
 
+The run prints its judge before the first question (`Judge: openrouter`). OpenRouter is
+probed once: if the key is unauthorised the judge degrades to the local fallback chain
+(`phi3 → qwen2.5 → gemini`) instead of aborting the run — report which judge produced
+the numbers, because local judges score more generously.
+
+`sentence-transformers` is an optional extra (`--extra ingestion`). Without it the eval
+scripts and ingestion fall back to FastEmbed/ONNX with the same MiniLM model, so a plain
+`uv sync` is enough to reproduce the numbers; install the extra for the torch embedder
+and its JSON vector cache.
+
 ## 🔌 API
 
 ```bash
@@ -102,12 +112,31 @@ Two machine-readable fields make the behaviour auditable instead of prose:
 | `grounded` / `grounding_unverified` | B4 | finished answering, grounded or not |
 | `out_of_scope` | B4 | planner judged the question outside the corpus |
 | `no_relevant_docs` / `insufficient_evidence` | B4 | grading or grounding found nothing usable |
-| `invalid_citations` | B4 | the draft cited chunks that are not in the retrieved set |
+| `invalid_citations` | B4 | the draft cited nothing usable: no marker matched a retrieved chunk, and the grounding report offered no attribution |
 | `budget_exhausted` | B4 | the 10-call / 2-round budget ran out |
 | `llm_unavailable` | B4 | every provider failed |
 | `no_answer` | B4 | model returned the abstention sentence at generation time |
 | `completed` / `no_answer` | B0 | closed-book answered / the model declined from memory |
 | `completed` / `insufficient_retrieval_score` | B1 | baseline answered / refused below the retrieval threshold |
+
+### Citation repair
+
+Small local models do not reliably follow a citation format. The generation prompt asks
+for `[chunk_id]` markers, and `finalize` treats them as the evidence trail — so a marker
+that is not one of the chunks retrieved *for this question* used to throw away an
+otherwise good answer. Three rules now apply, in order:
+
+1. markers that match a retrieved chunk are kept (all of them, in draft order);
+2. markers that do not match are stripped from the text and logged as a step
+   (`Dropped 1 citation(s) outside the retrieved chunks`);
+3. a draft with **no** valid marker falls back to the fact-checker's own attribution —
+   the grounding report lists which chunk supported each claim, and those ids are only
+   used when the grounding check actually passed. Otherwise the answer still abstains
+   with `invalid_citations`.
+
+B4 responses therefore carry an extra `draft_answer` field: the pre-validation draft.
+The UI shows it in a collapsed "Rejected draft" panel whenever an answer was thrown
+away, so a citation failure is diagnosable instead of invisible.
 
 ## 🔒 Security — prompt injection
 
@@ -118,6 +147,18 @@ external-URL access, code execution, `OVERRIDE ACCEPTED` confirmation, and
 `<|im_start|>` delimiter injection. Each test asserts no prompt leakage, no persona
 adoption, no acceptance of the planted false premise, no code echo, and a status
 inside the documented vocabulary.
+
+Defence in depth, and what each layer actually guarantees:
+
+| Layer | Systems | Property |
+|---|---|---|
+| generation prompt rule 6 | B0, B1, B4 | the question and the context are declared data, not instructions |
+| retrieval-score gate | B1, B4 | off-corpus questions never reach generation (`MIN_RETRIEVAL_SCORE`) |
+| citation + grounding gate | B4 | an answer must cite retrieved chunks and survive the fact-checker |
+
+B0 has **no** layer beyond the prompt: it answers from model memory, so a payload that
+the model chooses to obey is returned verbatim. That is the baseline's defining
+weakness in the ablation, not an oversight — the live injection run records it.
 
 ```bash
 pytest -m integration tests/integration/test_injection.py -v
@@ -256,12 +297,17 @@ uv run python -m agentic_rag.ingestion.ingest_all
 
 # Chunking uses RecursiveCharacterTextSplitter (500 words, 80 overlap), so
 # re-running ingestion rewrites chunk boundaries and supersedes older points.
-uv run uvicorn agentic_rag.api.main:app --reload   # http://localhost:8000/docs
+uv run uvicorn agentic_rag.api.main:app --reload --reload-dir src   # http://localhost:8000/docs
 uv run --extra ui streamlit run ui/app.py          # http://localhost:8501
 ```
 
 Leave `OLLAMA_ENABLED` at its default (`true`) so local queries use Ollama first and
 only fall back to the cloud.
+
+`--reload-dir src` matters: without it the reloader watches `.venv` and reprints the
+dependency tree on every edit. `GET /` returns the endpoint index; `/docs` and `/health`
+are the ones to call (a bare `GET /health` returning 200 is the liveness check Render
+probes).
 
 ### Docker Compose (API + Qdrant + optional Ollama)
 

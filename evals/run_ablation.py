@@ -8,6 +8,7 @@ Usage:
 """
 import argparse
 import json
+from types import SimpleNamespace
 
 from agentic_rag.agent.closed_book import ClosedBook
 from agentic_rag.agent.graph import build_agent
@@ -18,13 +19,40 @@ from agentic_rag.retrieval.store import VectorStore
 from evals.judges import judge_answer
 
 
+class _FallbackJudge:
+    """Adapter so ``judge_answer`` can use the router's fallback chain."""
+
+    def __init__(self, router):
+        self.router = router
+
+    def invoke(self, prompt):
+        return SimpleNamespace(content=self.router.invoke_with_fallback(prompt))
+
+
+def build_judge(router):
+    """Prefer OpenRouter for grading; degrade to the local chain when it is down.
+
+    A judge that keeps the generator's model family would score its own work, so
+    OpenRouter is probed once and only replaced when it actually fails.
+    """
+    try:
+        judge = router.get_llm("openrouter")
+        judge.invoke("Reply with ONLY the number 4.")
+        return judge, "openrouter"
+    except Exception as error:  # noqa: BLE001 - any provider error means "unusable"
+        print(f"OpenRouter judge unavailable ({error}); using the local fallback chain.")
+        return _FallbackJudge(router), "local chain (phi3 -> qwen2.5 -> gemini)"
+
+
 def run_ablation(markdown: bool = False):
     router = LLMRouter()
+    embedder = CachedEmbedder()
     b0 = ClosedBook(router=router)
-    b1 = SimpleRAG(router=router)
-    b4 = build_agent(router, CachedEmbedder(), VectorStore(), top_k=5,
+    b1 = SimpleRAG(router=router, embedder=embedder)
+    b4 = build_agent(router, embedder, VectorStore(), top_k=5,
                      max_router_calls=10, max_rounds=2)
-    judge_llm = router.get_llm("openrouter")
+    judge_llm, judge_name = build_judge(router)
+    print(f"Judge: {judge_name}\n")
     with open("evals/dataset/dev_set.jsonl", encoding="utf-8") as f:
         questions = [json.loads(line) for line in f if line.strip()]
     answerable = [q for q in questions if q["answerable"]]

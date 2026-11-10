@@ -12,6 +12,40 @@ from agentic_rag.agent.state import AgentState
 from agentic_rag.llm.chains import text_chain
 from agentic_rag.retrieval.retriever import build_retriever, documents_to_chunks
 
+#: ``[chunk_id]`` markers in a draft answer. Markdown links (``[text](url)``)
+#: are not citations, hence the lookahead.
+CITATION_RE = re.compile(r"\[([A-Za-z0-9_.:-]+)\](?!\()")
+
+
+def _chunk_ids(chunks) -> set[str]:
+    return {chunk.payload["chunk_id"] for chunk in chunks}
+
+
+def _drop_markers(text: str, ids: set[str]) -> str:
+    """Remove ``[id]`` markers for ``ids`` and tidy the leftover punctuation."""
+    for chunk_id in ids:
+        text = re.sub(r"\[\s*" + re.escape(chunk_id) + r"\s*\]", "", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\s+([.,;:!?])", r"\1", text)
+    return text.strip()
+
+
+def _attributed_ids(state: AgentState, valid: set[str]) -> list[str]:
+    """Chunk ids the *fact-checker* tied the answer to, when the draft cited none.
+
+    Only usable when the grounding check passed: then every claim has been
+    verified against the retrieved chunks and the checker reported which ones.
+    """
+    if not state.get("is_grounded"):
+        return []
+    attributed: list[str] = []
+    for claim in state.get("grounding_claims") or []:
+        for raw in claim.get("chunk_ids", []):
+            chunk_id = str(raw).strip().strip("[]")
+            if chunk_id in valid and chunk_id not in attributed:
+                attributed.append(chunk_id)
+    return attributed
+
 
 def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: int = 10,
                 max_rounds: int = 2, grounded_threshold: float = 0.75):
@@ -106,6 +140,7 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
         status = "grounded" if result["is_grounded"] else "not grounded"
         return {"is_grounded": result["is_grounded"], "feedback": result["feedback"],
                 "grounding_feedback": result["feedback"],
+                "grounding_claims": result.get("claims", []),
                 "router_calls": state["router_calls"] + result["router_calls"],
                 "steps": [f"Grounding check: {status}"]}
 
@@ -129,16 +164,31 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
         if not draft or draft.casefold() == ABSTENTION.casefold():
             return {"final_answer": ABSTENTION, "citations": [], "status": "abstained",
                     "stop_reason": state.get("stop_reason", "no_answer"), "steps": ["Finalized: abstained"]}
-        cited = list(dict.fromkeys(re.findall(r"\[([A-Za-z0-9_.:-]+)\]", draft)))
-        valid = {c.payload["chunk_id"] for c in state.get("relevant_chunks", [])}
-        if not cited or any(cid not in valid for cid in cited):
-            return {"final_answer": ABSTENTION, "citations": [], "status": "abstained",
-                    "stop_reason": "invalid_citations", "steps": ["Finalized: invalid citations"]}
-        grounded = state.get("is_grounded", False)
-        return {"final_answer": draft, "citations": cited,
-                "status": "answered" if grounded else "answered_unverified",
-                "stop_reason": "grounded" if grounded else "grounding_unverified",
-                "steps": ["Finalized: answered"]}
+        cited = list(dict.fromkeys(CITATION_RE.findall(draft)))
+        valid = _chunk_ids(state.get("relevant_chunks", []))
+        kept = [chunk_id for chunk_id in cited if chunk_id in valid]
+        if kept:
+            # Local models copy example ids from the prompt or invent them; a
+            # marker that is not a retrieved chunk is dropped instead of
+            # discarding an otherwise cited answer.
+            dropped = set(cited) - set(kept)
+            answer = _drop_markers(draft, dropped) if dropped else draft
+            grounded = state.get("is_grounded", False)
+            steps = ["Finalized: answered"]
+            if dropped:
+                steps.append(f"Dropped {len(dropped)} citation(s) outside the retrieved chunks")
+            return {"final_answer": answer, "citations": kept,
+                    "status": "answered" if grounded else "answered_unverified",
+                    "stop_reason": "grounded" if grounded else "grounding_unverified",
+                    "steps": steps}
+        attributed = _attributed_ids(state, valid)
+        if attributed:
+            answer = draft.rstrip() + " " + " ".join(f"[{chunk_id}]" for chunk_id in attributed)
+            return {"final_answer": answer, "citations": attributed, "status": "answered",
+                    "stop_reason": "grounded",
+                    "steps": ["Finalized: answered (citations from the grounding report)"]}
+        return {"final_answer": ABSTENTION, "citations": [], "status": "abstained",
+                "stop_reason": "invalid_citations", "steps": ["Finalized: invalid citations"]}
 
     def after_plan(state):
         return state.get("route", "abstain")
