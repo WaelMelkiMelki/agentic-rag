@@ -1,7 +1,5 @@
 import operator
-from typing import Annotated, Literal, NotRequired, TypedDict
-
-from qdrant_client.models import ScoredPoint
+from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 
 class ClaimCheck(TypedDict):
@@ -19,9 +17,10 @@ class AgentState(TypedDict):
     # Filled by graph nodes
     route: NotRequired[Literal["retrieve", "abstain"]]
     search_query: NotRequired[str]
-    chunks: NotRequired[list[ScoredPoint]]
+    # ``retrieval.retriever.RetrievedChunk`` — kept as Any to avoid a Qdrant import here.
+    chunks: NotRequired[list[Any]]
     round: NotRequired[int]
-    relevant_chunks: NotRequired[list[ScoredPoint]]
+    relevant_chunks: NotRequired[list[Any]]
     draft_answer: NotRequired[str]
     is_grounded: NotRequired[bool]
     grounding_feedback: NotRequired[str]

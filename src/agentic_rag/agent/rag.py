@@ -1,6 +1,7 @@
 from agentic_rag.agent.prompts import ABSTENTION, GENERATE_CHAT_PROMPT, format_context
 from agentic_rag.llm.chains import text_chain
 from agentic_rag.llm.router import LLMRouter
+from agentic_rag.retrieval.retriever import build_retriever, documents_to_chunks
 from agentic_rag.retrieval.store import VectorStore
 
 
@@ -27,8 +28,8 @@ class SimpleRAG:
 
     def retrieve(self, question: str, top_k: int = 5) -> list:
         """Search the vector store for chunks relevant to a question."""
-        query_vector = self.embedder.embed_query(question)
-        return self.store.search(query_vector, top_k=top_k)
+        retriever = build_retriever(self.store, self.embedder, k=top_k)
+        return documents_to_chunks(retriever.invoke(question))
 
     def generate(self, question: str, chunks) -> str:
         """Generate an answer using only the retrieved chunks."""

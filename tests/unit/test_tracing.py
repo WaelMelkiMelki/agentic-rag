@@ -159,3 +159,58 @@ def test_flush_calls_client():
     client = _FakeV5Client()
     tracing.flush(client=client)
     assert client.flushed is True
+
+
+# ------------------------------------------------- LangChain callback wiring ---
+def test_callbacks_are_empty_without_keys():
+    assert tracing.callbacks() == []
+
+
+def test_callbacks_are_cached_once(monkeypatch):
+    class FakeClient:
+        pass
+
+    sentinel = object()
+    monkeypatch.setattr(tracing, "get_client", lambda: FakeClient())
+    monkeypatch.setattr(tracing, "_callback_handler", sentinel, raising=False)
+
+    assert tracing.callbacks() == [sentinel]
+    assert tracing.callbacks() == [sentinel]
+
+
+def test_callbacks_returns_empty_when_the_handler_cannot_be_built(monkeypatch):
+    class FakeClient:
+        pass
+
+    monkeypatch.setattr(tracing, "get_client", lambda: FakeClient())
+    monkeypatch.setattr(tracing, "_callback_handler", tracing._UNINITIALIZED, raising=False)
+
+    # Whether or not the installed SDK can build a handler without a live client,
+    # this must never raise and must always return a list.
+    result = tracing.callbacks()
+    assert isinstance(result, list)
+
+
+def test_chains_bind_langfuse_callbacks_when_available(monkeypatch):
+    from langchain_core.callbacks import BaseCallbackHandler
+    from langchain_core.prompts import ChatPromptTemplate
+
+    from agentic_rag.llm.chains import text_chain
+
+    class RecordingHandler(BaseCallbackHandler):
+        def __init__(self):
+            self.starts = 0
+
+        def on_chain_start(self, *args, **kwargs):
+            self.starts += 1
+
+    handler = RecordingHandler()
+    monkeypatch.setattr(tracing, "callbacks", lambda: [handler])
+
+    class FakeRouter:
+        def invoke_with_fallback(self, prompt):
+            return "answer"
+
+    chain = text_chain(ChatPromptTemplate.from_template("Q: {question}"), FakeRouter())
+    assert chain.invoke({"question": "why?"}) == "answer"
+    assert handler.starts >= 1

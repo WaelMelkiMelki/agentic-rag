@@ -28,6 +28,7 @@ TRACE_NAME = "agentic-rag-query"
 # importing this module (tests, CLI runs, Render cold start) cannot fail.
 _UNINITIALIZED = object()
 _client: Any = _UNINITIALIZED
+_callback_handler: Any = _UNINITIALIZED
 
 
 def _langfuse_configured() -> bool:
@@ -68,6 +69,29 @@ def get_client() -> Any:
         logger.warning("Langfuse client could not be created", exc_info=True)
         _client = None
     return _client
+
+
+def callbacks() -> list[Any]:
+    """LangChain callback handlers that stream chain/retriever spans to Langfuse.
+
+    Returns an empty list when tracing is disabled, so chains stay untouched on
+    a laptop without Langfuse keys and on CI.
+    """
+    global _callback_handler
+
+    if get_client() is None:
+        return []
+    if _callback_handler is not _UNINITIALIZED:
+        return [_callback_handler] if _callback_handler is not None else []
+
+    _callback_handler = None
+    try:
+        from langfuse.langchain import CallbackHandler
+
+        _callback_handler = CallbackHandler()
+    except Exception:  # pragma: no cover - depends on the installed SDK
+        logger.warning("Langfuse LangChain callback handler unavailable", exc_info=True)
+    return [_callback_handler] if _callback_handler is not None else []
 
 
 def _payload(result: dict[str, Any]) -> dict[str, Any]:
@@ -166,6 +190,7 @@ def flush(client: Any = None) -> None:
 
 
 def reset_client() -> None:
-    """Drop the cached client (used by tests and after env changes)."""
-    global _client
+    """Drop the cached client and callback handler (used by tests)."""
+    global _client, _callback_handler
     _client = _UNINITIALIZED
+    _callback_handler = _UNINITIALIZED

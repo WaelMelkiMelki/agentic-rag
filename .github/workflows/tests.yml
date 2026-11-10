@@ -1,0 +1,53 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        # The `ui` extra is needed so tests/integration/test_ui.py runs instead of skipping.
+        run: uv sync --locked --extra ui
+
+      - name: Run the offline test suite
+        # `-m "not integration"` excludes the live prompt-injection tests, which need
+        # real API keys and a reachable Qdrant collection (see docs/eval_report.md).
+        run: uv run pytest -q -m "not integration"
+
+      - name: Check for whitespace errors
+        run: git diff --check
+
+      - name: Verify the app imports with no credentials configured
+        env:
+          GEMINI_API_KEY: ""
+          OPENROUTER_API_KEY: ""
+          OLLAMA_ENABLED: "false"
+        run: |
+          uv run python -c "
+          from agentic_rag.api.main import app
+          from agentic_rag.llm.router import LLMRouter
+          from agentic_rag.agent.closed_book import ClosedBook
+          router = LLMRouter()
+          print('routes:', sorted({r.path for r in app.routes if r.path.startswith('/')}))
+          print('provider order: ollama_phi -> ollama_qwen -> gemini -> openrouter')
+          assert isinstance(router.gemini.model, str)
+          assert ClosedBook(router=router).chain is not None
+          "

@@ -10,6 +10,7 @@ from agentic_rag.agent.prompts import ABSTENTION, GENERATE_CHAT_PROMPT, format_c
 from agentic_rag.agent.rewrite import rewrite_query
 from agentic_rag.agent.state import AgentState
 from agentic_rag.llm.chains import text_chain
+from agentic_rag.retrieval.retriever import build_retriever, documents_to_chunks
 
 
 def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: int = 10,
@@ -20,6 +21,9 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
     """
     if top_k < 1 or max_router_calls < 1 or max_rounds < 0:
         raise ValueError("top_k and max_router_calls must be positive; max_rounds cannot be negative")
+
+    # LangChain retriever: embed -> search Qdrant -> Documents.
+    retriever = build_retriever(store, embedder, k=top_k)
 
     # LCEL chains: prompt -> fallback router -> text. Built once per agent.
     plan_chain = text_chain(PLAN_CHAT_PROMPT, router)
@@ -52,8 +56,8 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
 
     def retrieve(state: AgentState) -> dict:
         try:
-            vector = embedder.embed_query(state.get("search_query", state["question"]))
-            chunks = store.search(vector, top_k=top_k)
+            documents = retriever.invoke(state.get("search_query", state["question"]))
+            chunks = documents_to_chunks(documents)
         except Exception:
             return {"chunks": [], "relevant_chunks": [], "steps": ["Retrieval failed"]}
         return {"chunks": chunks, "relevant_chunks": [],
