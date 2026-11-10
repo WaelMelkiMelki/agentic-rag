@@ -94,3 +94,31 @@ def test_ui_offers_all_three_baselines(monkeypatch):
 
     assert not at.exception
     assert list(at.sidebar.radio[0].options) == ["B4", "B1", "B0"]
+
+
+def test_ui_sends_a_stable_session_id(monkeypatch):
+    health = FakeResponse({"status": "ok", "qdrant_docs": 77})
+    answer = FakeResponse(
+        {
+            "answer": "Attention maps queries to keys [c1].",
+            "citations": ["c1"],
+            "steps": ["plan", "finalize"],
+            "status": "answered",
+            "stop_reason": "grounded",
+            "system": "B4",
+            "latency_s": 1.0,
+            "standalone_question": "What is self-attention?",
+        }
+    )
+    posted = []
+
+    at, _, _ = run_app(monkeypatch, health, post_response=answer)
+    monkeypatch.setattr(
+        "requests.post", lambda *args, **kwargs: posted.append(kwargs.get("json")) or answer
+    )
+    at.chat_input[0].set_value("What is self-attention?").run()
+
+    assert not at.exception
+    assert posted, "the UI did not call /query"
+    assert posted[0]["session_id"]
+    assert posted[0]["system"] == "B4"
