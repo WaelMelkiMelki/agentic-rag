@@ -12,7 +12,7 @@
 | Agent (B4) | `src/agentic_rag/agent/graph.py` | LangGraph state machine with self-correction |
 | Prompts | `src/agentic_rag/agent/{prompts,plan,grade,ground,rewrite}.py` | `ChatPromptTemplate` objects (`GENERATE_CHAT_PROMPT` etc.), rendered text identical to the original prompt strings; `GENERATE_CHAT_PROMPT` is shared by B1 and B4 |
 | Retrieval | `src/agentic_rag/retrieval/` | FastEmbed (ONNX) embedder, Qdrant vector store, and `ChunkRetriever` (LangChain `BaseRetriever` → `Document`s) |
-| Ingestion | `src/agentic_rag/ingestion/` | PDF download → PyMuPDF4LLM parse → `RecursiveCharacterTextSplitter` chunking → embed → upsert |
+| Ingestion | `src/agentic_rag/ingestion/` | PDF download → PyMuPDF4LLM parse → `RecursiveCharacterTextSplitter` chunking → embed → upsert (`--recreate` drops the collection first, so a chunking change cannot leave orphaned points) |
 | Memory | `src/agentic_rag/agent/memory.py` | Bounded per-session `BaseChatMessageHistory` + follow-up condensing (`session_id`) |
 | Parsing | `src/agentic_rag/agent/parsing.py` | LangChain output parsers: planner JSON (fence-tolerant), yes/no verdict (first word decides, so `Yes.` keeps the chunk), claim report |
 | Chains | `src/agentic_rag/llm/chains.py` | LCEL `prompt \| router \| StrOutputParser()` used by every node |

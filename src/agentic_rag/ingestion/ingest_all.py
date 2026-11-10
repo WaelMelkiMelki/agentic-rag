@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 from agentic_rag.ingestion.chunk import chunk_text
@@ -6,12 +7,21 @@ from agentic_rag.retrieval.fast_embedder import FastEmbedder
 from agentic_rag.retrieval.store import VectorStore
 
 
-def ingest_all() -> None:
+def ingest_all(recreate: bool = False) -> None:
+    """Parse, chunk, embed and upsert every PDF in ``data/raw``.
+
+    ``recreate=True`` drops the collection first. Use it whenever the chunking
+    contract changes (splitter, chunk size, overlap): an upsert alone only
+    overwrites colliding chunk ids and leaves orphaned points behind.
+    """
     # Use the same ONNX model as the API; this avoids importing PyTorch and
     # keeps ingestion/query vectors compatible.
     embedder = FastEmbedder()
     store = VectorStore()
-    store.create_collection(vector_size=embedder.embedding_dimension)
+    if recreate:
+        store.recreate_collection(vector_size=embedder.embedding_dimension)
+    else:
+        store.create_collection(vector_size=embedder.embedding_dimension)
 
     raw_dir = Path("data/raw")
     total_chunks = 0
@@ -41,4 +51,10 @@ def ingest_all() -> None:
 
 
 if __name__ == "__main__":
-    ingest_all()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--recreate",
+        action="store_true",
+        help="drop the collection before ingesting (required after a chunking change)",
+    )
+    ingest_all(recreate=parser.parse_args().recreate)

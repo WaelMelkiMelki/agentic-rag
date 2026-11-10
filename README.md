@@ -293,10 +293,12 @@ ollama pull phi3:latest
 ollama pull qwen2.5:latest
 
 docker compose up -d qdrant
-uv run python -m agentic_rag.ingestion.ingest_all
+uv run python -m agentic_rag.ingestion.ingest_all --recreate
 
-# Chunking uses RecursiveCharacterTextSplitter (500 words, 80 overlap), so
-# re-running ingestion rewrites chunk boundaries and supersedes older points.
+# Chunking uses RecursiveCharacterTextSplitter (500 words, 80 overlap) and point ids
+# are {doc_id}__{index}. After any chunking change you must pass --recreate: a plain
+# upsert only overwrites the ids that collide, so orphaned points survive and pollute
+# retrieval (and inflate the chunk count).
 uv run uvicorn agentic_rag.api.main:app --reload --reload-dir src   # http://localhost:8000/docs
 uv run --extra ui streamlit run ui/app.py          # http://localhost:8501
 ```
