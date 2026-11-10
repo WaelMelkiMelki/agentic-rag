@@ -11,6 +11,8 @@ agent had before instead of crashing the graph.
 """
 from __future__ import annotations
 
+import re
+
 from langchain_core.output_parsers import BaseOutputParser, PydanticOutputParser
 from pydantic import ValidationError
 
@@ -18,15 +20,24 @@ from agentic_rag.agent.plan import Plan
 from agentic_rag.agent.state import ClaimCheck
 
 
+#: ``yes`` as the first word, allowing the emphasis/quotes local models add.
+_YES_RE = re.compile(r"^[*_`\"'\s]*yes\b", re.IGNORECASE)
+
+
 class VerdictParser(BaseOutputParser[bool]):
     """Parse a relevance-grading reply into ``True`` / ``False``.
 
-    Semantics are unchanged from the pre-parser code: only an exact ``yes``
-    (case/whitespace insensitive) keeps a chunk; anything else is ``False``.
+    The prompt asks for a bare ``yes`` / ``no``, but local models decorate it
+    (``Yes.``, ``**Yes**``, ``yes, it explains attention``). The first word
+    decides, so a decorated answer no longer silently drops a usable chunk —
+    phi3 was grading 5 chunks down to 2 on a question the corpus answers.
+
+    Anything that does not start with ``yes`` is ``False``: a hedged or
+    unparseable reply still drops the chunk rather than passing it on.
     """
 
     def parse(self, text: str) -> bool:
-        return text.strip().lower() == "yes"
+        return bool(_YES_RE.match(text))
 
     @property
     def _type(self) -> str:

@@ -14,7 +14,7 @@
 | Retrieval | `src/agentic_rag/retrieval/` | FastEmbed (ONNX) embedder, Qdrant vector store, and `ChunkRetriever` (LangChain `BaseRetriever` → `Document`s) |
 | Ingestion | `src/agentic_rag/ingestion/` | PDF download → PyMuPDF4LLM parse → `RecursiveCharacterTextSplitter` chunking → embed → upsert |
 | Memory | `src/agentic_rag/agent/memory.py` | Bounded per-session `BaseChatMessageHistory` + follow-up condensing (`session_id`) |
-| Parsing | `src/agentic_rag/agent/parsing.py` | LangChain output parsers: planner JSON, yes/no verdict, claim report |
+| Parsing | `src/agentic_rag/agent/parsing.py` | LangChain output parsers: planner JSON (fence-tolerant), yes/no verdict (first word decides, so `Yes.` keeps the chunk), claim report |
 | Chains | `src/agentic_rag/llm/chains.py` | LCEL `prompt \| router \| StrOutputParser()` used by every node |
 | LLM routing | `src/agentic_rag/llm/router.py` | 4-tier fallback with per-process failure caching |
 | Observability | `src/agentic_rag/tracing.py` | Optional Langfuse: one trace per query (`trace_agent`) plus the LangChain `CallbackHandler` bound to every chain, fail-safe |
