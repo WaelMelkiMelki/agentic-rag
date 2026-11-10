@@ -3,12 +3,17 @@
 A self-correcting document QA agent that retrieves, generates, and **verifies its own
 answers** against source documents — built on three arXiv ML papers.
 
-The API serves two systems side by side so they can be compared directly:
+The API serves three systems side by side so they can be compared directly:
 
+* **B0 — Closed-book:** one LLM call from parametric knowledge, no retrieval.
 * **B1 — Plain RAG:** retrieve → generate.
 * **B4 — Agentic RAG:** a LangGraph state machine that plans, grades retrieved
   chunks, generates, checks every claim against the sources, and rewrites the query
   when grounding fails.
+
+Every node is an LCEL chain — `ChatPromptTemplate | LLMRouter | StrOutputParser` —
+and the structured replies (routing decision, grade verdict, claim report) are read
+by LangChain output parsers.
 
 ## 🚀 Live Demo
 
@@ -29,7 +34,7 @@ against the 77-chunk collection.
 
 | System | Hit@5 | MRR | Answer quality | Abstention | LLM calls / query |
 |--------|-------|-----|----------------|------------|-------------------|
-| Closed-book (B0) | — | — | __ / 5 | — | 1 |
+| Closed-book (B0) | — | — | __ / 5 | __ % | 1 |
 | Plain RAG (B1) | 0.92 (11/12) | 0.81 | __ / 5 | __ % | 1 |
 | Full Agent (B4) | __ | __ | __ / 5 | __ % | ~8 |
 
@@ -38,9 +43,12 @@ abstention accuracy on unanswerable questions from __% to __% at ~8× the LLM co
 
 Known gaps (see [Evaluation Report](docs/eval_report.md)): the B1 answer-quality run
 stopped early on Gemini's daily free-tier quota, so the three recorded judge scores
-(5, 3, 4) are a partial sample and refusal rates are not yet established. The
-closed-book (B0) row is reserved for the ablation comparison — it is not implemented
-in this repository yet, so every B0 cell stays empty.
+(5, 3, 4) are a partial sample and refusal rates are not yet established. All three
+baselines are implemented; fill the table with:
+
+```bash
+uv run python -m evals.run_ablation
+```
 
 ## 🔌 API
 
@@ -63,13 +71,13 @@ curl -s -X POST https://agentic-rag-1jii.onrender.com/query \
 }
 ```
 
-`system` is `"B1"` or `"B4"`. Two machine-readable fields make the agent's behaviour
-auditable instead of prose:
+`system` is `"B0"` (closed-book), `"B1"` (plain RAG) or `"B4"` (agent). Two
+machine-readable fields make the behaviour auditable instead of prose:
 
 | `status` | Meaning |
 |---|---|
 | `answered` | every claim was verified against the retrieved chunks |
-| `answered_unverified` | answered, but the grounding ratio stayed below the 0.75 threshold |
+| `answered_unverified` | answered, but the grounding ratio stayed below the 0.75 threshold (B4 only) |
 | `abstained` | refused with "I cannot answer this from the provided sources." |
 
 | `stop_reason` | System | Meaning |
@@ -81,6 +89,7 @@ auditable instead of prose:
 | `budget_exhausted` | B4 | the 10-call / 2-round budget ran out |
 | `llm_unavailable` | B4 | every provider failed |
 | `no_answer` | B4 | model returned the abstention sentence at generation time |
+| `completed` / `no_answer` | B0 | closed-book answered / the model declined from memory |
 | `completed` / `insufficient_retrieval_score` | B1 | baseline answered / refused below the retrieval threshold |
 
 ## 🔒 Security — prompt injection
@@ -174,6 +183,8 @@ so the next query retries Ollama instead of silently going cloud-only.
 * **LLM routing:** 4-tier fallback — Ollama `phi3:latest`, Ollama `qwen2.5:latest`,
   Gemini `gemini-3.8-flash`, OpenRouter `openrouter/free`
 * **Agent framework:** LangGraph (typed `AgentState`, conditional edges, retry loops)
+* **Orchestration:** LCEL chains (`prompt | router | StrOutputParser()`) in `llm/chains.py`
+* **Output parsing:** LangChain `BaseOutputParser` / `PydanticOutputParser` (`agent/parsing.py`)
 * **Prompting:** `ChatPromptTemplate` (`langchain-core`) — `GENERATE_CHAT_PROMPT` is shared
   by B1 and B4, and its rendered text is byte-identical to the original prompt string
   (asserted in `tests/unit/test_prompts.py`), so the ablation stays fair
@@ -194,8 +205,10 @@ agentic-rag/
 ├── src/agentic_rag/
 │   ├── agent/          # LangGraph agent (initialize → plan → retrieve → grade → generate → ground → finalize)
 │   │   ├── prompts.py  # GENERATE_CHAT_PROMPT (ChatPromptTemplate) shared by B1 and B4
+│   │   ├── parsing.py  # output parsers: plan JSON, yes/no verdict, claim report
+│   │   ├── closed_book.py # ClosedBook baseline (B0, no retrieval)
 │   │   └── rag.py      # SimpleRAG baseline (B1)
-│   ├── llm/            # LLMRouter (phi3 → qwen2.5 → Gemini → OpenRouter) + usage tracker
+│   ├── llm/            # LLMRouter (phi3 → qwen2.5 → Gemini → OpenRouter), LCEL chains, tracker
 │   ├── retrieval/      # FastEmbed embedder + Qdrant vector store
 │   ├── ingestion/      # PDF download → parse → chunk → embed pipeline
 │   ├── api/            # FastAPI app + singleton deps

@@ -86,3 +86,11 @@ def test_ui_treats_qdrant_degraded_as_unreachable(monkeypatch):
 
     assert not app.exception
     assert app.error
+
+
+def test_ui_offers_all_three_baselines(monkeypatch):
+    health = FakeResponse({"status": "ok", "qdrant_docs": 77})
+    at, _, _ = run_app(monkeypatch, health)
+
+    assert not at.exception
+    assert list(at.sidebar.radio[0].options) == ["B4", "B1", "B0"]

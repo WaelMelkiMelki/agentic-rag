@@ -1,9 +1,10 @@
-from agentic_rag.agent.prompts import GENERATE_CHAT_PROMPT, format_context
+from agentic_rag.agent.prompts import ABSTENTION, GENERATE_CHAT_PROMPT, format_context
+from agentic_rag.llm.chains import text_chain
 from agentic_rag.llm.router import LLMRouter
 from agentic_rag.retrieval.store import VectorStore
 
 
-REFUSAL_ANSWER = "I cannot answer this from the provided sources."
+REFUSAL_ANSWER = ABSTENTION
 MIN_RETRIEVAL_SCORE = 0.3
 
 
@@ -21,6 +22,8 @@ class SimpleRAG:
         if top_k <= 0:
             raise ValueError("top_k must be greater than zero")
         self.top_k = top_k
+        # LCEL chain: shared generation prompt -> fallback router -> text.
+        self.generate_chain = text_chain(GENERATE_CHAT_PROMPT, self.router)
 
     def retrieve(self, question: str, top_k: int = 5) -> list:
         """Search the vector store for chunks relevant to a question."""
@@ -30,8 +33,7 @@ class SimpleRAG:
     def generate(self, question: str, chunks) -> str:
         """Generate an answer using only the retrieved chunks."""
         context = format_context(chunks)
-        messages = GENERATE_CHAT_PROMPT.format_messages(context=context, question=question)
-        return self.router.invoke_with_fallback(messages)
+        return self.generate_chain.invoke({"context": context, "question": question})
 
     def ask(self, question: str, top_k: int = 5) -> dict:
         """Retrieve context and return a structured answer."""

@@ -104,3 +104,20 @@ A benign control question checks that hardening did not break normal answering.
   or `abstained`.
 - Status and grounding booleans are computed in Python (`is_grounded`, claim verdicts),
   never taken from free-form model output.
+
+## Baselines — B0 / B1 / B4
+
+All three systems are implemented and scored by the same harness:
+
+```bash
+uv run python -m evals.run_ablation
+```
+
+| System | Description | Answer score | Refusal rate | LLM calls / query |
+|---|---|---|---|---|
+| B0 — closed-book | one call, no retrieval (`agent/closed_book.py`) | __ / 5 | __ % | 1 |
+| B1 — plain RAG | retrieve → generate (`agent/rag.py`) | __ / 5 | __ % | 1 |
+| B4 — agent | plan → retrieve → grade → generate → ground (`agent/graph.py`) | __ / 5 | __ % | ~8 |
+
+The harness prints the three columns directly; copy them here and into the README
+results table.

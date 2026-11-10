@@ -28,6 +28,17 @@ class FakeBaseline:
         }
 
 
+class FakeClosedBook:
+    def query(self, question: str) -> dict:
+        return {
+            "answer": "Fake B0 answer from memory.",
+            "citations": [],
+            "steps": ["generate (closed-book)"],
+            "status": "answered",
+            "stop_reason": "completed",
+        }
+
+
 class FakeStore:
     def count(self) -> int:
         return 42
@@ -37,6 +48,7 @@ class FakeStore:
 def client(monkeypatch):
     monkeypatch.setattr(main, "get_agent", lambda: FakeAgent())
     monkeypatch.setattr(main, "get_baseline", lambda: FakeBaseline())
+    monkeypatch.setattr(main, "get_closed_book", lambda: FakeClosedBook())
     monkeypatch.setattr(main, "get_store", lambda: FakeStore())
     # Do not enter TestClient as a context manager: that would run the real
     # startup lifespan and construct Qdrant, embeddings, and provider clients.
@@ -81,6 +93,17 @@ def test_query_b1(client):
     assert "Fake B1" in data["answer"]
     assert data["citations"] == ["chunk_2"]
     assert data["system"] == "B1"
+
+
+def test_query_b0(client):
+    response = client.post("/query", json={"question": "What is RAG?", "system": "B0"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "Fake B0" in data["answer"]
+    assert data["citations"] == []
+    assert data["system"] == "B0"
+    assert data["status"] == "answered"
+    assert data["stop_reason"] == "completed"
 
 
 def test_query_invalid_system(client):

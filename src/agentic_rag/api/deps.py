@@ -5,6 +5,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from agentic_rag.agent.closed_book import ClosedBook
     from agentic_rag.agent.rag import SimpleRAG
     from agentic_rag.llm.router import LLMRouter
     from agentic_rag.retrieval.fast_embedder import FastEmbedder
@@ -59,3 +60,10 @@ def get_baseline() -> SimpleRAG:
         store=get_store(),
         top_k=5,
     )
+
+
+@lru_cache(maxsize=1)
+def get_closed_book() -> "ClosedBook":
+    from agentic_rag.agent.closed_book import ClosedBook
+
+    return ClosedBook(router=get_router())

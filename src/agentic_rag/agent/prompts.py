@@ -1,5 +1,8 @@
 from langchain_core.prompts import ChatPromptTemplate
 
+#: The one abstention sentence used by every system (B0, B1 and B4).
+ABSTENTION = "I cannot answer this from the provided sources."
+
 GENERATE_PROMPT = """You are a research assistant. Answer the question using ONLY the provided context.
 
 Rules:
