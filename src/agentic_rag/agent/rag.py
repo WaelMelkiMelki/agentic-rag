@@ -1,4 +1,4 @@
-from agentic_rag.agent.prompts import GENERATE_PROMPT, format_context
+from agentic_rag.agent.prompts import GENERATE_CHAT_PROMPT, format_context
 from agentic_rag.llm.router import LLMRouter
 from agentic_rag.retrieval.store import VectorStore
 
@@ -30,8 +30,8 @@ class SimpleRAG:
     def generate(self, question: str, chunks) -> str:
         """Generate an answer using only the retrieved chunks."""
         context = format_context(chunks)
-        prompt = GENERATE_PROMPT.format(context=context, question=question)
-        return self.router.invoke_with_fallback(prompt)
+        messages = GENERATE_CHAT_PROMPT.format_messages(context=context, question=question)
+        return self.router.invoke_with_fallback(messages)
 
     def ask(self, question: str, top_k: int = 5) -> dict:
         """Retrieve context and return a structured answer."""

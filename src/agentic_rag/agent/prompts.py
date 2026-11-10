@@ -1,3 +1,5 @@
+from langchain_core.prompts import ChatPromptTemplate
+
 GENERATE_PROMPT = """You are a research assistant. Answer the question using ONLY the provided context.
 
 Rules:
@@ -13,6 +15,12 @@ Context:
 Question: {question}
 
 Answer:"""
+
+
+#: LangChain template built from the exact same text as ``GENERATE_PROMPT``.
+#: The rendered text is byte-identical (asserted in tests/unit/test_prompts.py),
+#: so the B1-vs-B4 comparison still shares one generation prompt.
+GENERATE_CHAT_PROMPT = ChatPromptTemplate.from_template(GENERATE_PROMPT)
 
 
 def format_context(chunks) -> str:

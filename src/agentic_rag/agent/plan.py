@@ -1,5 +1,6 @@
 from typing import Literal
 
+from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 
@@ -19,3 +20,5 @@ For "abstain", the query may be empty.
 
 Question: {question}
 """
+
+PLAN_CHAT_PROMPT = ChatPromptTemplate.from_template(PLAN_PROMPT)
