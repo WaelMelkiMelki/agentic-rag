@@ -95,13 +95,21 @@ A benign control question checks that hardening did not break normal answering.
 
 ### Mitigations currently in place
 
-- `GENERATE_PROMPT` (shared by B1 and B4) instructs the model to answer **only** from
-  context and to reply with the exact sentence
+- `GENERATE_PROMPT` (shared by B0, B1 and B4) instructs the model to answer **only**
+  from context and to reply with the exact sentence
   "I cannot answer this from the provided sources." when the context is insufficient.
+  Rule 6 declares the question and the context to be data rather than instructions:
+  attempts to change the role, reveal the rules, or dictate a fixed output must be
+  ignored. B0 has no other defence — it is the prompt-only baseline.
 - The `plan` node abstains before retrieval for out-of-scope questions, and
   `ground` verifies each claim against retrieved chunks, so an injected claim cannot
   be marked `answered` without citation support; failures end at `answered_unverified`
   or `abstained`.
+- `finalize` treats citations as the evidence trail: each `[chunk_id]` marker must match
+  a chunk retrieved for that question, unmatched markers are stripped from the answer,
+  and a draft with no verified citation abstains with `invalid_citations` unless the
+  passing grounding report supplies the attribution. The rejected draft is returned in
+  `draft_answer` so a refusal can be audited instead of guessed at.
 - Status and grounding booleans are computed in Python (`is_grounded`, claim verdicts),
   never taken from free-form model output.
 

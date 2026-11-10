@@ -227,3 +227,39 @@ def test_follow_up_uses_the_condensed_question(monkeypatch):
     assert response.json()["standalone_question"] == "What is multi-head attention?"
     assert len(router.prompts) == 1
     assert "Attention maps queries to keys." in router.prompts[0].to_messages()[0].content
+
+
+def test_root_lists_the_endpoints(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.json()["health"] == "/health"
+    assert response.json()["query"] == "POST /query"
+
+
+def test_abstained_b4_response_exposes_the_rejected_draft(monkeypatch):
+    class RejectingAgent:
+        def invoke(self, state: dict) -> dict:
+            return {
+                "final_answer": "I cannot answer this from the provided sources.",
+                "citations": [],
+                "steps": ["Generated draft", "Finalized: invalid citations"],
+                "status": "abstained",
+                "stop_reason": "invalid_citations",
+                "draft_answer": "Attention mixes subspaces [attention_is_all_you_need__12].",
+            }
+
+    monkeypatch.setattr(main, "get_agent", lambda: RejectingAgent())
+    client = TestClient(main.app)
+
+    data = client.post("/query", json={"question": "What is attention?", "system": "B4"}).json()
+
+    assert data["status"] == "abstained"
+    assert data["stop_reason"] == "invalid_citations"
+    assert "attention_is_all_you_need__12" in data["draft_answer"]
+
+
+def test_baselines_do_not_report_a_draft(client):
+    for system in ("B1", "B0"):
+        data = client.post("/query", json={"question": "What is RAG?", "system": system}).json()
+        assert data["draft_answer"] == ""

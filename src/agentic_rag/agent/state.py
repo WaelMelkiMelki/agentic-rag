@@ -24,6 +24,7 @@ class AgentState(TypedDict):
     draft_answer: NotRequired[str]
     is_grounded: NotRequired[bool]
     grounding_feedback: NotRequired[str]
+    grounding_claims: NotRequired[list[ClaimCheck]]
     feedback: NotRequired[str]
     final_answer: NotRequired[str]
     citations: NotRequired[list[str]]
