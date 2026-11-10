@@ -299,6 +299,11 @@ uv run python -m agentic_rag.ingestion.ingest_all --recreate
 # are {doc_id}__{index}. After any chunking change you must pass --recreate: a plain
 # upsert only overwrites the ids that collide, so orphaned points survive and pollute
 # retrieval (and inflate the chunk count).
+
+# Qdrant closes idle REST keep-alive connections after 5 s, so an upsert that follows a
+# long embedding step can hit a half-closed socket ("The write operation timed out").
+# Writes are idempotent and retried once on a fresh connection; QDRANT_TIMEOUT (30 s)
+# overrides the client-side timeout.
 uv run uvicorn agentic_rag.api.main:app --reload --reload-dir src   # http://localhost:8000/docs
 uv run --extra ui streamlit run ui/app.py          # http://localhost:8501
 ```
