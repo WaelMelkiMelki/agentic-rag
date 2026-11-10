@@ -236,6 +236,25 @@ so the next query retries Ollama instead of silently going cloud-only.
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter endpoint |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` | — | Optional tracing; disabled if unset |
 
+### CPU-only laptops
+
+`ollama ps` tells you what is actually resident. On a machine without a GPU it reports
+`100% CPU` and phi3 generates roughly 5–10 tokens/s, so the claim-by-claim grounding
+report — the longest reply the agent asks for — can outrun the 120 s default on its own.
+A timeout then falls through to `qwen2.5`, which has just been evicted from memory, so
+the fallback pays a cold load too and can time out as well.
+
+```bash
+# .env
+OLLAMA_TIMEOUT=300
+
+# in the environment of `ollama serve`, so the model is not evicted after 5 idle minutes
+OLLAMA_KEEP_ALIVE=30m
+```
+
+`ollama ps` prints an `UNTIL` column: with the default keep-alive, a 5-minute gap
+between calls reloads phi3 from disk, and that load is charged to the next call's timeout.
+
 ## 🛠 Tech Stack
 
 * **LLM routing:** 4-tier fallback — Ollama `phi3:latest`, Ollama `qwen2.5:latest`,
