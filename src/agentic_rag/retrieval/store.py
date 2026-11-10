@@ -35,6 +35,25 @@ class VectorStore:
         )
         print(f"Created collection '{self.collection}' (dim={vector_size})")
 
+    def recreate_collection(self, vector_size: int) -> None:
+        """Drop and re-create the collection so stale points cannot survive.
+
+        Chunk ids are derived from the splitter, so after a chunking change an
+        upsert only overwrites the ids that happen to collide: every point with
+        a higher index would linger and pollute retrieval (and the chunk count).
+        """
+        if vector_size <= 0:
+            raise ValueError("vector_size must be greater than zero")
+
+        if self.client.collection_exists(self.collection):
+            self.client.delete_collection(collection_name=self.collection)
+            print(f"Dropped collection '{self.collection}'")
+        self.client.create_collection(
+            collection_name=self.collection,
+            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+        )
+        print(f"Created collection '{self.collection}' (dim={vector_size})")
+
     def upsert_chunks(self, chunks, vectors) -> None:
         """Insert or update document chunks in the vector store."""
         if len(chunks) != len(vectors):
