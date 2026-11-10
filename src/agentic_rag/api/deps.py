@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from agentic_rag.agent.closed_book import ClosedBook
+    from agentic_rag.agent.memory import SessionMemory
     from agentic_rag.agent.rag import SimpleRAG
     from agentic_rag.llm.router import LLMRouter
     from agentic_rag.retrieval.fast_embedder import FastEmbedder
@@ -67,3 +68,11 @@ def get_closed_book() -> "ClosedBook":
     from agentic_rag.agent.closed_book import ClosedBook
 
     return ClosedBook(router=get_router())
+
+
+@lru_cache(maxsize=1)
+def get_sessions() -> "SessionMemory":
+    """Process-local conversation memory for callers that send a session_id."""
+    from agentic_rag.agent.memory import SessionMemory
+
+    return SessionMemory()
