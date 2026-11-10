@@ -12,13 +12,20 @@ from agentic_rag.agent.parsing import ClaimsParser, VerdictParser, parse_plan
     [
         ("yes", True),
         (" YES \n", True),
+        # Local models decorate the verdict; the first word is the decision.
+        ("Yes.", True),
+        ("**Yes**", True),
+        ("yes, it is relevant", True),
         ("no", False),
-        ("No.", False),   # exact-match semantics preserved: only a bare "yes" keeps a chunk
-        ("yes, it is relevant", False),
+        ("No.", False),
+        ("not relevant, no", False),
+        # Never interpret silence as evidence.
         ("", False),
+        ("maybe", False),
+        ("I am not sure", False),
     ],
 )
-def test_verdict_parser_keeps_exact_match_semantics(text, expected):
+def test_verdict_parser_reads_the_first_word(text, expected):
     assert VerdictParser().parse(text) is expected
 
 
