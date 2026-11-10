@@ -2,6 +2,7 @@ import re
 
 from langgraph.graph import END, START, StateGraph
 
+from agentic_rag.agent.cite import request_citations
 from agentic_rag.agent.grade import grade_chunks
 from agentic_rag.agent.ground import check_grounding
 from agentic_rag.agent.parsing import parse_plan
@@ -181,14 +182,25 @@ def build_agent(router, embedder, store, *, top_k: int = 5, max_router_calls: in
                     "status": "answered" if grounded else "answered_unverified",
                     "stop_reason": "grounded" if grounded else "grounding_unverified",
                     "steps": steps}
+        extra_calls = 0
         attributed = _attributed_ids(state, valid)
+        source = "the grounding report"
+        if not attributed and state["router_calls"] + 1 <= max_router_calls:
+            # The draft ignored the citation rule and the fact-checker did not
+            # attribute it (often because it timed out): ask once for ids only.
+            attributed, extra_calls = request_citations(
+                draft, state.get("relevant_chunks", []), router
+            )
+            source = "a citation request"
         if attributed:
             answer = draft.rstrip() + " " + " ".join(f"[{chunk_id}]" for chunk_id in attributed)
             return {"final_answer": answer, "citations": attributed, "status": "answered",
-                    "stop_reason": "grounded",
-                    "steps": ["Finalized: answered (citations from the grounding report)"]}
+                    "stop_reason": "grounded", "router_calls": state["router_calls"] + extra_calls,
+                    "steps": [f"Finalized: answered (citations from {source})"]}
         return {"final_answer": ABSTENTION, "citations": [], "status": "abstained",
-                "stop_reason": "invalid_citations", "steps": ["Finalized: invalid citations"]}
+                "stop_reason": "invalid_citations",
+                "router_calls": state["router_calls"] + extra_calls,
+                "steps": ["Finalized: invalid citations"]}
 
     def after_plan(state):
         return state.get("route", "abstain")

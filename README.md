@@ -131,8 +131,12 @@ otherwise good answer. Three rules now apply, in order:
    (`Dropped 1 citation(s) outside the retrieved chunks`);
 3. a draft with **no** valid marker falls back to the fact-checker's own attribution —
    the grounding report lists which chunk supported each claim, and those ids are only
-   used when the grounding check actually passed. Otherwise the answer still abstains
-   with `invalid_citations`.
+   used when the grounding check actually passed;
+4. if the fact-checker never got that far (its report is the longest LLM reply in the
+   graph, so on a CPU-only laptop it can time out), one cheap call asks the model which
+   chunk ids support the draft. It returns a handful of tokens, and every id is
+   validated against the retrieved set — an invented id still cannot get through, and a
+   reply of `none` keeps the refusal.
 
 B4 responses therefore carry an extra `draft_answer` field: the pre-validation draft.
 The UI shows it in a collapsed "Rejected draft" panel whenever an answer was thrown
